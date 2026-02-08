@@ -361,11 +361,11 @@ in_proxies = False
 base_indent = None
 for line in lines:
     if not in_proxies:
-        m = re.match(r'^(\s*)proxies\s*:\s*$', line)
+        m = re.match(r'^(\s*)proxies\s*:', line)
         if m:
             in_proxies = True
             base_indent = len(m.group(1))
-            out.append("proxies:")
+            out.append(line.rstrip())
         continue
     if line.strip() == "":
         out.append(line)
