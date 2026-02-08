@@ -77,34 +77,48 @@ case "$ARCH" in
     ;;
 esac
 
-URL=$(curl -fsSL https://api.github.com/repos/MetaCubeX/mihomo/releases/latest | \
-python3 - <<'PY'
-import json, os, re, sys
-arch=os.environ.get("ARCH")
+if [[ -n "${MIHOMO_URL:-}" ]]; then
+  URL="$MIHOMO_URL"
+else
+  TMP_JSON=$(mktemp)
+  if ! curl -fsSL -H "Accept: application/vnd.github+json" -H "User-Agent: mihomo-smart" \
+    https://api.github.com/repos/MetaCubeX/mihomo/releases/latest -o "$TMP_JSON"; then
+    echo "  获取发布信息失败：可能网络受限或 GitHub API 限流"
+    rm -f "$TMP_JSON"
+    exit 1
+  fi
+
+  URL=$(ARCH="$ARCH" python3 - "$TMP_JSON" <<'PY'
+import json, os, sys
+arch = os.environ.get("ARCH")
+path = sys.argv[1]
 try:
-    data=json.load(sys.stdin)
+    with open(path, "r", encoding="utf-8") as f:
+        data = json.load(f)
 except Exception:
     sys.exit(0)
-assets=data.get("assets", [])
-choices=[]
+assets = data.get("assets", [])
+choices = []
 for a in assets:
-    name=a.get("name", "")
-    url=a.get("browser_download_url", "")
+    name = a.get("name", "")
+    url = a.get("browser_download_url", "")
     if not name or not url:
         continue
-    n=name.lower()
+    n = name.lower()
     if "linux" in n and arch in n and "sha256" not in n:
         choices.append((name, url))
 if not choices:
     sys.exit(0)
-# 优先 .gz，其次无扩展
 choices.sort(key=lambda x: (0 if x[0].endswith(".gz") else 1, len(x[0])))
 print(choices[0][1])
 PY
-)
+  )
+  rm -f "$TMP_JSON"
+fi
 
 if [[ -z "$URL" ]]; then
   echo "  安装失败：未找到对应的 Linux 发行包"
+  echo "  可手动指定下载地址：MIHOMO_URL=... 重新运行脚本"
   exit 1
 fi
 
