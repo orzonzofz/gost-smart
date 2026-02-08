@@ -17,6 +17,8 @@ SUBCONVERTER_PORT=25500
 SUBCONVERTER_PID=$WORKDIR/subconverter.pid
 SUBCONVERTER_LOG=$WORKDIR/subconverter.log
 
+SUB_UA=${SUB_UA:-clash}
+
 HTTP_PORT=18080
 SOCKS_PORT=18081
 
@@ -331,15 +333,27 @@ yaml_quote() {
   printf '"%s"' "$s"
 }
 
+normalize_yaml() {
+  local f="$1"
+  # 去除 UTF-8 BOM 与 Windows 换行
+  sed -i '1s/^\xEF\xBB\xBF//' "$f" 2>/dev/null || true
+  sed -i 's/\r$//' "$f" 2>/dev/null || true
+}
+
+is_clash_yaml() {
+  local f="$1"
+  grep -qE '^[[:space:]]*proxies:' "$f"
+}
+
 extract_proxies_block() {
   awk '
-  /^proxies:/ {flag=1; print; next}
+  /^[[:space:]]*proxies:/ {flag=1; print; next}
   flag {
     if ($0 ~ /^[^[:space:]#]/) {exit}
     print
   }' "$SUB_FILE" > "$PROXY_YAML"
 
-  if ! grep -q '^proxies:' "$PROXY_YAML"; then
+  if ! is_clash_yaml "$PROXY_YAML"; then
     echo "  订阅内容缺少 proxies 字段，无法解析"
     return 1
   fi
@@ -362,17 +376,26 @@ update_sub() {
 
   TMP=$(mktemp)
   TMP_DEC=$(mktemp)
-  if ! curl -fsSL "$SUB" -o "$TMP"; then
+  if ! curl -fsSL --compressed -A "$SUB_UA" "$SUB" -o "$TMP"; then
     echo "  下载失败，请检查链接"
     rm -f "$TMP" "$TMP_DEC"
     return
   fi
 
-  if grep -q '^proxies:' "$TMP"; then
+  normalize_yaml "$TMP"
+  if is_clash_yaml "$TMP"; then
     mv "$TMP" "$SUB_FILE"
-  elif base64 -d "$TMP" > "$TMP_DEC" 2>/dev/null && grep -q '^proxies:' "$TMP_DEC"; then
+  elif base64 -d "$TMP" > "$TMP_DEC" 2>/dev/null; then
+    normalize_yaml "$TMP_DEC"
+    if is_clash_yaml "$TMP_DEC"; then
     mv "$TMP_DEC" "$SUB_FILE"
     rm -f "$TMP"
+    else
+      rm -f "$TMP" "$TMP_DEC"
+      if ! convert_sub_to_clash "$SUB"; then
+        return
+      fi
+    fi
   else
     rm -f "$TMP" "$TMP_DEC"
     if ! convert_sub_to_clash "$SUB"; then
