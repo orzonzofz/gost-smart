@@ -19,8 +19,11 @@ $RECYCLE.BIN/
 
 .idea/
 .vscode/
-!.vscode/extensions.json
 .claude/
+.codex/
+.gemini/
+.playwright-mcp/
+.playwright/
 
 ########################################
 # 通用：日志/缓存/临时目录
