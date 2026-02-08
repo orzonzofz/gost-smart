@@ -346,12 +346,39 @@ is_clash_yaml() {
 }
 
 extract_proxies_block() {
-  awk '
-  /^[[:space:]]*proxies:/ {flag=1; print; next}
-  flag {
-    if ($0 ~ /^[^[:space:]#]/) {exit}
-    print
-  }' "$SUB_FILE" > "$PROXY_YAML"
+  python3 - "$SUB_FILE" "$PROXY_YAML" <<'PY'
+import re, sys
+src, dst = sys.argv[1], sys.argv[2]
+try:
+    with open(src, "r", encoding="utf-8", errors="ignore") as f:
+        lines = f.read().splitlines()
+except Exception:
+    open(dst, "w").close()
+    sys.exit(0)
+
+out = []
+in_proxies = False
+base_indent = None
+for line in lines:
+    if not in_proxies:
+        m = re.match(r'^(\s*)proxies\s*:\s*$', line)
+        if m:
+            in_proxies = True
+            base_indent = len(m.group(1))
+            out.append("proxies:")
+        continue
+    if line.strip() == "":
+        out.append(line)
+        continue
+    indent = len(line) - len(line.lstrip(' '))
+    if indent <= base_indent and not line.lstrip().startswith('-'):
+        break
+    out.append(line)
+
+with open(dst, "w", encoding="utf-8") as f:
+    if out:
+        f.write("\n".join(out) + "\n")
+PY
 
   if ! is_clash_yaml "$PROXY_YAML"; then
     echo "  订阅内容缺少 proxies 字段，无法解析"
@@ -360,18 +387,43 @@ extract_proxies_block() {
 }
 
 extract_proxy_names() {
-  awk '
-    /name[[:space:]]*:/ {
-      line=$0
-      sub(/.*name[[:space:]]*:[[:space:]]*/, "", line)
-      sub(/[}].*$/, "", line)
-      sub(/,.*/, "", line)
-      gsub(/^"+|"+$/, "", line)
-      gsub(/^'\''+|'\''+$/, "", line)
-      gsub(/^[[:space:]]+|[[:space:]]+$/, "", line)
-      if (line != "") print line
-    }
-  ' "$PROXY_YAML" | awk 'NF' > "$PROXY_FILE"
+  python3 - "$PROXY_YAML" <<'PY' > "$PROXY_FILE"
+import re, sys
+path = sys.argv[1]
+try:
+    with open(path, "r", encoding="utf-8", errors="ignore") as f:
+        lines = f.read().splitlines()
+except Exception:
+    sys.exit(0)
+
+names = []
+seen = set()
+for line in lines:
+    if not line or line.lstrip().startswith("#"):
+        continue
+    m = re.search(r'\bname\s*:\s*', line)
+    if not m:
+        continue
+    s = line[m.end():]
+    s = s.strip()
+    name = ""
+    if s.startswith(("'", '"')):
+        q = s[0]
+        end = s.find(q, 1)
+        if end != -1:
+            name = s[1:end]
+        else:
+            name = s[1:].strip()
+    else:
+        name = re.split(r'[},#]', s, 1)[0].strip()
+        if "," in name:
+            name = name.split(",", 1)[0].strip()
+    if name and name not in seen:
+        seen.add(name)
+        names.append(name)
+
+print("\n".join(names))
+PY
 
   if [[ ! -s "$PROXY_FILE" ]]; then
     echo "  未解析到任何节点名称"
