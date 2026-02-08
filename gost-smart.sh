@@ -360,8 +360,18 @@ extract_proxies_block() {
 }
 
 extract_proxy_names() {
-  awk -F'name:' '/- *name:/{sub(/^[[:space:]]*- *name:[[:space:]]*/, ""); gsub(/^"+|"+$/, ""); gsub(/^'\''+|'\''+$/, ""); print}' "$PROXY_YAML" | \
-  awk 'NF' > "$PROXY_FILE"
+  awk '
+    /name[[:space:]]*:/ {
+      line=$0
+      sub(/.*name[[:space:]]*:[[:space:]]*/, "", line)
+      sub(/[}].*$/, "", line)
+      sub(/,.*/, "", line)
+      gsub(/^"+|"+$/, "", line)
+      gsub(/^'\''+|'\''+$/, "", line)
+      gsub(/^[[:space:]]+|[[:space:]]+$/, "", line)
+      if (line != "") print line
+    }
+  ' "$PROXY_YAML" | awk 'NF' > "$PROXY_FILE"
 
   if [[ ! -s "$PROXY_FILE" ]]; then
     echo "  未解析到任何节点名称"
