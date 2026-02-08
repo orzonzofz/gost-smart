@@ -15,6 +15,7 @@ SUBCONVERTER_DIR=$WORKDIR/subconverter
 SUBCONVERTER_BIN=$SUBCONVERTER_DIR/subconverter
 SUBCONVERTER_PORT=25500
 SUBCONVERTER_PID=$WORKDIR/subconverter.pid
+SUBCONVERTER_LOG=$WORKDIR/subconverter.log
 
 HTTP_PORT=18080
 SOCKS_PORT=18081
@@ -150,6 +151,15 @@ set_ini_kv() {
   local file="$3"
   if grep -qE "^[[:space:]]*${key}=" "$file"; then
     sed -i "s|^[[:space:]]*${key}=.*|${key}=${value}|" "$file"
+    return
+  fi
+  if grep -q '^\[common\]' "$file"; then
+    awk -v k="$key" -v v="$value" '
+      BEGIN{done=0}
+      /^\[common\]/{print; if(!done){print k"="v; done=1; next}}
+      {print}
+      END{if(!done){print k"="v}}
+    ' "$file" > "${file}.tmp" && mv "${file}.tmp" "$file"
   else
     echo "${key}=${value}" >> "$file"
   fi
@@ -234,22 +244,31 @@ install_subconverter() {
     return 1
   fi
 
-  if [[ -f "$SUBCONVERTER_DIR/subconverter.ini" ]]; then
-    set_ini_kv "listen" "127.0.0.1" "$SUBCONVERTER_DIR/subconverter.ini"
-    set_ini_kv "port" "$SUBCONVERTER_PORT" "$SUBCONVERTER_DIR/subconverter.ini"
-    set_ini_kv "api_mode" "true" "$SUBCONVERTER_DIR/subconverter.ini"
+  local conf=""
+  if [[ -f "$SUBCONVERTER_DIR/pref.ini" ]]; then
+    conf="$SUBCONVERTER_DIR/pref.ini"
+  elif [[ -f "$SUBCONVERTER_DIR/subconverter.ini" ]]; then
+    conf="$SUBCONVERTER_DIR/subconverter.ini"
+  fi
+  if [[ -n "$conf" ]]; then
+    set_ini_kv "listen" "127.0.0.1" "$conf"
+    set_ini_kv "port" "$SUBCONVERTER_PORT" "$conf"
+    set_ini_kv "api_mode" "true" "$conf"
   fi
 }
 
 start_subconverter() {
   rm -f "$SUBCONVERTER_PID"
-  (cd "$SUBCONVERTER_DIR" && "$SUBCONVERTER_BIN" >/dev/null 2>&1 & echo $! > "$SUBCONVERTER_PID")
-  sleep 1
+  : > "$SUBCONVERTER_LOG"
+  (cd "$SUBCONVERTER_DIR" && nohup "$SUBCONVERTER_BIN" >"$SUBCONVERTER_LOG" 2>&1 & echo $! > "$SUBCONVERTER_PID")
+  sleep 2
   local pid
   pid=$(cat "$SUBCONVERTER_PID" 2>/dev/null || true)
   if [[ -n "$pid" ]] && kill -0 "$pid" 2>/dev/null; then
     echo 1
   else
+    echo "  subconverter 启动失败，日志如下："
+    tail -n 20 "$SUBCONVERTER_LOG" 2>/dev/null || true
     echo 0
   fi
 }
@@ -273,6 +292,9 @@ convert_sub_to_clash() {
 
   local started
   started=$(start_subconverter)
+  if [[ "$started" != "1" ]]; then
+    return 1
+  fi
 
   local enc url ok
   enc=$(urlencode "$sub_url")
