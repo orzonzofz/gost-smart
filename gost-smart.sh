@@ -8,7 +8,6 @@ PROXY_YAML=$WORKDIR/proxies.yaml
 ACTIVE=$WORKDIR/active.txt
 CONFIG=$WORKDIR/config.yaml
 AUTH_FILE=$WORKDIR/auth.txt
-SECRET_FILE=$WORKDIR/secret.txt
 MODE_FILE=$WORKDIR/mode.txt
 SUB_URLS_FILE=$WORKDIR/sub_urls.txt
 SUB_DEFAULT_FILE=$WORKDIR/sub_default.txt
@@ -47,20 +46,14 @@ fi
 rand_str() { tr -dc a-z0-9 </dev/urandom | head -c 12; }
 
 if [[ -f $AUTH_FILE ]]; then
-  USER=${USER:-$(cut -d: -f1 $AUTH_FILE)}
-  PASS=${PASS:-$(cut -d: -f2- $AUTH_FILE)}
+  USER=$(cut -d: -f1 "$AUTH_FILE")
+  PASS=$(cut -d: -f2- "$AUTH_FILE")
 else
   USER=$(rand_str)
   PASS=$(rand_str)
-  echo "${USER}:${PASS}" > $AUTH_FILE
+  echo "${USER}:${PASS}" > "$AUTH_FILE"
 fi
 
-if [[ -f $SECRET_FILE ]]; then
-  SECRET=$(cat $SECRET_FILE)
-else
-  SECRET=$(rand_str)
-  echo "$SECRET" > $SECRET_FILE
-fi
 
 line() { printf "%b\n" "${C_GREEN}-------------------------------------------------------${C_RESET}"; }
 
@@ -405,7 +398,6 @@ show_links() {
   line
   printf "%b\n" "  ${C_CYAN}HTTP  ${C_RESET}: ${C_YELLOW}http://${USER}:${PASS}@${ip}:${HTTP_PORT}${C_RESET}"
   printf "%b\n" "  ${C_CYAN}SOCKS ${C_RESET}: ${C_YELLOW}socks5://${USER}:${PASS}@${ip}:${SOCKS_PORT}${C_RESET}"
-  printf "%b\n" "  ${C_CYAN}控制面板${C_RESET}: ${C_YELLOW}127.0.0.1:9090${C_RESET}  ${C_CYAN}secret${C_RESET}: ${C_YELLOW}${SECRET}${C_RESET}"
   line
 }
 
@@ -1422,8 +1414,6 @@ bind-address: 0.0.0.0
 mode: global
 log-level: info
 ipv6: false
-external-controller: 127.0.0.1:9090
-secret: "${SECRET}"
 authentication:
   - "${USER}:${PASS}"
 
@@ -1459,8 +1449,6 @@ bind-address: 0.0.0.0
 mode: direct
 log-level: info
 ipv6: false
-external-controller: 127.0.0.1:9090
-secret: "${SECRET}"
 authentication:
   - "${USER}:${PASS}"
 
@@ -1498,7 +1486,6 @@ EOL
   line
   printf "%b\n" "  ${C_CYAN}HTTP  ${C_RESET}: ${C_YELLOW}http://${USER}:${PASS}@${IP}:${HTTP_PORT}${C_RESET}"
   printf "%b\n" "  ${C_CYAN}SOCKS ${C_RESET}: ${C_YELLOW}socks5://${USER}:${PASS}@${IP}:${SOCKS_PORT}${C_RESET}"
-  printf "%b\n" "  ${C_CYAN}控制面板${C_RESET}: ${C_YELLOW}127.0.0.1:9090${C_RESET}  ${C_CYAN}secret${C_RESET}: ${C_YELLOW}${SECRET}${C_RESET}"
   line
 }
 
@@ -1529,7 +1516,6 @@ EOL
   line
   printf "%b\n" "  ${C_CYAN}HTTP  ${C_RESET}: ${C_YELLOW}http://${USER}:${PASS}@${IP}:${HTTP_PORT}${C_RESET}"
   printf "%b\n" "  ${C_CYAN}SOCKS ${C_RESET}: ${C_YELLOW}socks5://${USER}:${PASS}@${IP}:${SOCKS_PORT}${C_RESET}"
-  printf "%b\n" "  ${C_CYAN}控制面板${C_RESET}: ${C_YELLOW}127.0.0.1:9090${C_RESET}  ${C_CYAN}secret${C_RESET}: ${C_YELLOW}${SECRET}${C_RESET}"
   line
 }
 
