@@ -70,12 +70,16 @@ menu_item() {
   printf "  %b%s%b) %-*s\n" "${C_YELLOW}" "$num" "${C_RESET}" "$MENU_WIDTH" "$label"
 }
 
-pause_menu() {
-  local msg="${1:-回车返回上一级}"
-  read -p "  ${msg}"
+wait_back() {
+  local msg="${1:-输入0返回上一级}"
+  local v
+  while true; do
+    read -p "  ${msg}: " v
+    [[ "$v" == "0" ]] && break
+  done
 }
 
-pause_main() { pause_menu "回车返回主菜单"; }
+wait_main() { wait_back "输入0返回上一级"; }
 
 logo() {
 clear
@@ -1374,10 +1378,10 @@ manage_subs() {
     echo
     read -p "  请输入选项: " n
     case $n in
-    1) show_subs; pause_menu ;;
-    2) set_default_sub_interactive; pause_menu ;;
-    3) delete_sub_interactive; pause_menu ;;
-    4) edit_sub_interactive; pause_menu ;;
+    1) show_subs; wait_back ;;
+    2) set_default_sub_interactive; wait_back ;;
+    3) delete_sub_interactive; wait_back ;;
+    4) edit_sub_interactive; wait_back ;;
     0) return ;;
     esac
   done
@@ -1586,28 +1590,28 @@ menu() {
   read -p "  请输入选项: " n
 
   case $n in
-  1) add_sub; pause_main ;;
-  2) update_sub; pause_main ;;
+  1) add_sub; wait_main ;;
+  2) update_sub; wait_main ;;
   M|m) manage_subs ;;
-  3) select_node; pause_main ;;
-  4) current_node; pause_main ;;
-  5) show_links; pause_main ;;
+  3) select_node; wait_main ;;
+  4) current_node; wait_main ;;
+  5) show_links; wait_main ;;
   6)
     systemctl restart mihomo-proxy
     echo
     printf "%b\n" "  ${C_GREEN}代理服务已重启${C_RESET}"
-    pause_main
+    wait_main
     ;;
   7)
     systemctl stop mihomo-proxy
     echo
     printf "%b\n" "  ${C_GREEN}代理服务已停止${C_RESET}"
-    pause_main
+    wait_main
     ;;
-  8) show_logs; pause_main ;;
-  9) direct_mode; pause_main ;;
+  8) show_logs; wait_main ;;
+  9) direct_mode; wait_main ;;
   0) exit ;;
-  U|u) uninstall_all; pause_main ;;
+  U|u) uninstall_all; wait_main ;;
   esac
 }
 
