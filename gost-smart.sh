@@ -21,6 +21,25 @@ SUB_UA=${SUB_UA:-clash}
 
 HTTP_PORT=18080
 SOCKS_PORT=18081
+MENU_WIDTH=34
+
+if [[ -t 1 && -z "${NO_COLOR:-}" ]]; then
+  C_RESET="\033[0m"
+  C_BOLD="\033[1m"
+  C_BLUE="\033[34m"
+  C_GREEN="\033[32m"
+  C_YELLOW="\033[33m"
+  C_RED="\033[31m"
+  C_CYAN="\033[36m"
+else
+  C_RESET=""
+  C_BOLD=""
+  C_BLUE=""
+  C_GREEN=""
+  C_YELLOW=""
+  C_RED=""
+  C_CYAN=""
+fi
 
 rand_str() { tr -dc a-z0-9 </dev/urandom | head -c 12; }
 
@@ -40,19 +59,27 @@ else
   echo "$SECRET" > $SECRET_FILE
 fi
 
-line() { echo "-------------------------------------------------------"; }
+line() { printf "%b\n" "${C_BLUE}-------------------------------------------------------${C_RESET}"; }
+
+menu_item() {
+  local num="$1"
+  local label="$2"
+  printf "  %b%s%b) %-*s\n" "${C_YELLOW}" "$num" "${C_RESET}" "$MENU_WIDTH" "$label"
+}
+
+pause_menu() { read -p "  回车返回菜单"; }
 
 logo() {
 clear
 echo
-echo "   ██████╗  ██████╗ ███████╗████████╗"
-echo "  ██╔════╝ ██╔═══██╗██╔════╝╚══██╔══╝"
-echo "  ██║  ███╗██║   ██║███████╗   ██║   "
-echo "  ██║   ██║██║   ██║╚════██║   ██║   "
-echo "  ╚██████╔╝╚██████╔╝███████║   ██║   "
-echo "   ╚═════╝  ╚═════╝ ╚══════╝   ╚═╝   "
+printf "%b\n" "${C_CYAN}   ██████╗  ██████╗ ███████╗████████╗${C_RESET}"
+printf "%b\n" "${C_CYAN}  ██╔════╝ ██╔═══██╗██╔════╝╚══██╔══╝${C_RESET}"
+printf "%b\n" "${C_CYAN}  ██║  ███╗██║   ██║███████╗   ██║   ${C_RESET}"
+printf "%b\n" "${C_CYAN}  ██║   ██║██║   ██║╚════██║   ██║   ${C_RESET}"
+printf "%b\n" "${C_CYAN}  ╚██████╔╝╚██████╔╝███████║   ██║   ${C_RESET}"
+printf "%b\n" "${C_CYAN}   ╚═════╝  ╚═════╝ ╚══════╝   ╚═╝   ${C_RESET}"
 echo
-echo "        MIHOMO 智能订阅代理管理面板"
+printf "%b\n" "${C_BOLD}        MIHOMO 智能订阅代理管理面板${C_RESET}"
 line
 echo
 }
@@ -331,6 +358,16 @@ yaml_quote() {
   s=${s//\\/\\\\}
   s=${s//\"/\\\"}
   printf '"%s"' "$s"
+}
+
+get_public_ip() {
+  # 强制 IPv4 获取公网地址，避免输出 IPv6
+  local ip
+  ip=$(curl -4 -s --max-time 6 ip.sb 2>/dev/null || true)
+  if [[ -z "$ip" ]]; then
+    ip="未获取到 IPv4"
+  fi
+  echo "$ip"
 }
 
 normalize_yaml() {
@@ -1039,10 +1076,10 @@ EOL
   systemctl enable mihomo-proxy
   systemctl restart mihomo-proxy
 
-  IP=$(curl -s ip.sb)
+  IP=$(get_public_ip)
   echo
   line
-  echo "  代理已启用"
+  printf "%b\n" "  ${C_GREEN}代理已启用${C_RESET}"
   line
   echo "  HTTP  : http://${USER}:${PASS}@${IP}:${HTTP_PORT}"
   echo "  SOCKS : socks5://${USER}:${PASS}@${IP}:${SOCKS_PORT}"
@@ -1070,10 +1107,10 @@ EOL
   systemctl enable mihomo-proxy
   systemctl restart mihomo-proxy
 
-  IP=$(curl -s ip.sb)
+  IP=$(get_public_ip)
   echo
   line
-  echo "  直连代理已启用（无需订阅）"
+  printf "%b\n" "  ${C_GREEN}直连代理已启用（无需订阅）${C_RESET}"
   line
   echo "  HTTP  : http://${USER}:${PASS}@${IP}:${HTTP_PORT}"
   echo "  SOCKS : socks5://${USER}:${PASS}@${IP}:${SOCKS_PORT}"
@@ -1128,26 +1165,33 @@ uninstall_all() {
 
 menu() {
   logo
-  echo "  1) 更新订阅并解析节点"
-  echo "  2) 选择节点并启用代理"
-  echo "  3) 查看当前使用节点"
-  echo "  4) 重启代理服务"
-  echo "  5) 卸载所有组件"
-  echo "  6) 启用直连 HTTP/SOCKS 代理（无需订阅）"
-  echo "  0) 退出"
+  menu_item "1" "更新订阅并解析节点"
+  menu_item "2" "选择节点并启用代理"
+  menu_item "3" "查看当前使用节点"
+  menu_item "4" "重启代理服务"
+  menu_item "5" "卸载所有组件"
+  menu_item "6" "启用直连 HTTP/SOCKS 代理"
+  menu_item "9" "退出"
+  menu_item "0" "返回上一级"
   echo
   read -p "  请输入选项: " n
 
   case $n in
-  1) update_sub ;;
-  2) select_node ;;
-  3) current_node ;;
-  4) systemctl restart mihomo-proxy ;;
-  5) uninstall_all ;;
-  6) direct_mode ;;
-  0) exit ;;
+  1) update_sub; pause_menu ;;
+  2) select_node; pause_menu ;;
+  3) current_node; pause_menu ;;
+  4)
+    systemctl restart mihomo-proxy
+    echo
+    printf "%b\n" "  ${C_GREEN}代理服务已重启${C_RESET}"
+    pause_menu
+    ;;
+  5) uninstall_all; pause_menu ;;
+  6) direct_mode; pause_menu ;;
+  9) exit ;;
+  0) return ;;
   esac
 }
 
 install_mihomo
-while true; do menu; read -p "  回车返回菜单"; done
+while true; do menu; done
