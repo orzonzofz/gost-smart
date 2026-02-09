@@ -27,13 +27,13 @@ MENU_WIDTH=16
 SUB_NAME_WIDTH=12
 
 if [[ -t 1 && -z "${NO_COLOR:-}" ]]; then
-  C_RESET="\033[0m"
-  C_BOLD="\033[1m"
-  C_BLUE="\033[34m"
-  C_GREEN="\033[32m"
-  C_YELLOW="\033[33m"
-  C_RED="\033[31m"
-  C_CYAN="\033[36m"
+  C_RESET=$'\033[0m'
+  C_BOLD=$'\033[1m'
+  C_BLUE=$'\033[34m'
+  C_GREEN=$'\033[32m'
+  C_YELLOW=$'\033[33m'
+  C_RED=$'\033[31m'
+  C_CYAN=$'\033[36m'
 else
   C_RESET=""
   C_BOLD=""
@@ -84,11 +84,12 @@ wait_main() { wait_back "输入0返回上一级"; }
 logo() {
 clear
 echo
-printf "%b\n" "${C_CYAN}      __  __  _____  _   _   ___   ___ ${C_RESET}"
-printf "%b\n" "${C_CYAN}     |  \\/  ||_   _|| | | | / _ \\ / _ \\${C_RESET}"
-printf "%b\n" "${C_CYAN}     | |\\/| |  | |  | |_| || | | | | | |${C_RESET}"
-printf "%b\n" "${C_CYAN}     | |  | |  | |  |  _  || |_| | |_| |${C_RESET}"
-printf "%b\n" "${C_CYAN}     |_|  |_|  |_|  |_| |_| \\___/ \\___/ ${C_RESET}"
+printf "%b\n" "${C_CYAN}███╗   ███╗██╗██╗  ██╗ ██████╗ ███╗   ███╗ ██████╗${C_RESET}"
+printf "%b\n" "${C_CYAN}████╗ ████║██║██║  ██║██╔═══██╗████╗ ████║██╔═══██╗${C_RESET}"
+printf "%b\n" "${C_CYAN}██╔████╔██║██║███████║██║   ██║██╔████╔██║██║   ██║${C_RESET}"
+printf "%b\n" "${C_CYAN}██║╚██╔╝██║██║██╔══██║██║   ██║██║╚██╔╝██║██║   ██║${C_RESET}"
+printf "%b\n" "${C_CYAN}██║ ╚═╝ ██║██║██║  ██║╚██████╔╝██║ ╚═╝ ██║╚██████╔╝${C_RESET}"
+printf "%b\n" "${C_CYAN}╚═╝     ╚═╝╚═╝╚═╝  ╚═╝ ╚═════╝ ╚═╝     ╚═╝ ╚═════╝${C_RESET}"
 echo
 printf "%b\n" "${C_BOLD}        MIHOMO 智能订阅代理管理面板${C_RESET}"
 line
@@ -982,10 +983,10 @@ sub_exists_url() {
 list_subs() {
   local def="${1:-}"
   if [[ ! -s "$SUB_URLS_FILE" ]]; then
-    echo "  （暂无订阅）"
+    printf "%b\n" "  ${C_YELLOW}（暂无订阅）${C_RESET}"
     return
   fi
-  awk -v def="$def" -v w="$SUB_NAME_WIDTH" 'NF && $0 !~ /^[[:space:]]*#/ {
+  awk -v def="$def" -v w="$SUB_NAME_WIDTH" -v g="$C_GREEN" -v y="$C_YELLOW" -v r="$C_RESET" 'NF && $0 !~ /^[[:space:]]*#/ {
     i++
     line=$0
     name=""
@@ -999,8 +1000,8 @@ list_subs() {
       name="未命名"
     }
     if (name=="") name="未命名"
-    mark=(url==def?" [默认]":"")
-    printf "  %2d) %-*s | %s%s\n", i, w, name, url, mark
+    mark=(url==def?g " [默认]" r:"")
+    printf "  %2d) %s%-*s%s | %s%s\n", i, y, w, name, r, url, mark
   }' "$SUB_URLS_FILE"
 }
 
@@ -1270,7 +1271,7 @@ show_subs() {
   def=$(get_default_sub)
   echo
   line
-  echo "  已保存订阅："
+  printf "%b\n" "  ${C_BOLD}已保存订阅：${C_RESET}"
   list_subs "$def"
   line
 }
@@ -1368,7 +1369,7 @@ manage_subs() {
   while true; do
     echo
     line
-    echo "  订阅管理"
+    printf "%b\n" "  ${C_BOLD}订阅管理${C_RESET}"
     line
     menu_item "1" "查看订阅"
     menu_item "2" "设为默认"
