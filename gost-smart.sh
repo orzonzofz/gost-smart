@@ -10,6 +10,8 @@ CONFIG=$WORKDIR/config.yaml
 AUTH_FILE=$WORKDIR/auth.txt
 SECRET_FILE=$WORKDIR/secret.txt
 MODE_FILE=$WORKDIR/mode.txt
+SUB_URLS_FILE=$WORKDIR/sub_urls.txt
+SUB_DEFAULT_FILE=$WORKDIR/sub_default.txt
 
 SUBCONVERTER_DIR=$WORKDIR/subconverter
 SUBCONVERTER_BIN=$SUBCONVERTER_DIR/subconverter
@@ -21,7 +23,8 @@ SUB_UA=${SUB_UA:-clash}
 
 HTTP_PORT=18080
 SOCKS_PORT=18081
-MENU_WIDTH=34
+MENU_WIDTH=16
+SUB_NAME_WIDTH=12
 
 if [[ -t 1 && -z "${NO_COLOR:-}" ]]; then
   C_RESET="\033[0m"
@@ -901,8 +904,254 @@ PY
   fi
 }
 
-update_sub() {
+get_default_sub() {
+  if [[ -f "$SUB_DEFAULT_FILE" ]]; then
+    cat "$SUB_DEFAULT_FILE"
+  fi
+}
+
+set_default_sub() {
+  echo "$1" > "$SUB_DEFAULT_FILE"
+}
+
+clear_default_sub() {
+  rm -f "$SUB_DEFAULT_FILE"
+}
+
+auto_sub_name() {
+  local url="$1"
+  python3 - "$url" <<'PY'
+import sys
+from urllib.parse import urlsplit
+u = sys.argv[1]
+name = "订阅"
+try:
+    p = urlsplit(u)
+    if p.hostname:
+        name = p.hostname
+except Exception:
+    pass
+print(name)
+PY
+}
+
+normalize_sub_name() {
+  local name="$1"
+  name="${name//|/-}"
+  name="${name//$'\t'/ }"
+  name="${name//$'\r'/ }"
+  name="$(echo "$name" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
+  if [[ -z "$name" ]]; then
+    name="订阅"
+  fi
+  echo "$name"
+}
+
+format_sub_line() {
+  local name="$1"
+  local url="$2"
+  echo "${name}|${url}"
+}
+
+sub_exists_url() {
+  local url="$1"
+  if [[ -z "$url" || ! -f "$SUB_URLS_FILE" ]]; then
+    return 1
+  fi
+  awk -v u="$url" 'NF && $0 !~ /^[[:space:]]*#/ {
+    line=$0
+    if (index(line,"|")>0) {
+      split(line,a,"|")
+      url=substr(line, length(a[1])+2)
+    } else {
+      url=line
+    }
+    if (url==u) {found=1; exit}
+  } END{exit found?0:1}' "$SUB_URLS_FILE"
+}
+
+list_subs() {
+  local def="${1:-}"
+  if [[ ! -s "$SUB_URLS_FILE" ]]; then
+    echo "  （暂无订阅）"
+    return
+  fi
+  awk -v def="$def" -v w="$SUB_NAME_WIDTH" 'NF && $0 !~ /^[[:space:]]*#/ {
+    i++
+    line=$0
+    name=""
+    url=""
+    if (index(line,"|")>0) {
+      split(line,a,"|")
+      name=a[1]
+      url=substr(line, length(a[1])+2)
+    } else {
+      url=line
+      name="未命名"
+    }
+    if (name=="") name="未命名"
+    mark=(url==def?" [默认]":"")
+    printf "  %2d) %-*s | %s%s\n", i, w, name, url, mark
+  }' "$SUB_URLS_FILE"
+}
+
+get_sub_by_index() {
+  local idx="$1"
+  if [[ ! -f "$SUB_URLS_FILE" ]]; then
+    return
+  fi
+  awk -v n="$idx" 'NF && $0 !~ /^[[:space:]]*#/ {
+    i++
+    if (i==n) {
+      line=$0
+      if (index(line,"|")>0) {
+        split(line,a,"|")
+        print substr(line, length(a[1])+2)
+      } else {
+        print line
+      }
+      exit
+    }
+  }' "$SUB_URLS_FILE"
+}
+
+get_sub_name_by_index() {
+  local idx="$1"
+  if [[ ! -f "$SUB_URLS_FILE" ]]; then
+    return
+  fi
+  awk -v n="$idx" 'NF && $0 !~ /^[[:space:]]*#/ {
+    i++
+    if (i==n) {
+      line=$0
+      if (index(line,"|")>0) {
+        split(line,a,"|")
+        print a[1]
+      } else {
+        print "未命名"
+      }
+      exit
+    }
+  }' "$SUB_URLS_FILE"
+}
+
+get_sub_index_by_url() {
+  local url="$1"
+  if [[ -z "$url" || ! -f "$SUB_URLS_FILE" ]]; then
+    return
+  fi
+  awk -v u="$url" 'NF && $0 !~ /^[[:space:]]*#/ {
+    i++
+    line=$0
+    if (index(line,"|")>0) {
+      split(line,a,"|")
+      url=substr(line, length(a[1])+2)
+    } else {
+      url=line
+    }
+    if (url==u) {print i; exit}
+  }' "$SUB_URLS_FILE"
+}
+
+count_subs() {
+  if [[ ! -f "$SUB_URLS_FILE" ]]; then
+    echo 0
+    return
+  fi
+  awk 'NF && $0 !~ /^[[:space:]]*#/ {c++} END{print c+0}' "$SUB_URLS_FILE"
+}
+
+remove_sub_by_index() {
+  local idx="$1"
+  if [[ -z "$idx" || ! -f "$SUB_URLS_FILE" ]]; then
+    return 1
+  fi
+  awk -v n="$idx" 'NF && $0 !~ /^[[:space:]]*#/ {i++; if(i==n){next}} {print}' "$SUB_URLS_FILE" > "${SUB_URLS_FILE}.tmp" \
+    && mv "${SUB_URLS_FILE}.tmp" "$SUB_URLS_FILE"
+}
+
+replace_sub_by_index() {
+  local idx="$1"
+  local new_line="$2"
+  if [[ -z "$idx" || -z "$new_line" || ! -f "$SUB_URLS_FILE" ]]; then
+    return 1
+  fi
+  awk -v n="$idx" -v new="$new_line" 'NF && $0 !~ /^[[:space:]]*#/ {i++; if(i==n){print new; next}} {print}' "$SUB_URLS_FILE" > "${SUB_URLS_FILE}.tmp" \
+    && mv "${SUB_URLS_FILE}.tmp" "$SUB_URLS_FILE"
+}
+
+add_sub() {
   read -p "  输入订阅链接(支持 Clash/Mihomo 或 v2rayN): " SUB
+  if [[ -z "$SUB" ]]; then
+    echo "  未输入订阅链接"
+    return
+  fi
+  if sub_exists_url "$SUB"; then
+    echo "  订阅已存在"
+    return
+  fi
+  read -p "  订阅名称(可选，回车自动生成): " SUB_NAME
+  if [[ -z "$SUB_NAME" ]]; then
+    SUB_NAME=$(auto_sub_name "$SUB")
+  fi
+  SUB_NAME=$(normalize_sub_name "$SUB_NAME")
+  local before
+  before=$(count_subs)
+  format_sub_line "$SUB_NAME" "$SUB" >> "$SUB_URLS_FILE"
+  if [[ "$before" -eq 0 ]]; then
+    set_default_sub "$SUB"
+  fi
+  echo "  已添加订阅"
+}
+
+update_sub() {
+  local sub_url="${1:-}"
+  if [[ -z "$sub_url" ]]; then
+    if [[ ! -s "$SUB_URLS_FILE" ]]; then
+      echo "  未添加订阅，请先选择“添加订阅”"
+      return
+    fi
+    local total
+    total=$(count_subs)
+    if [[ "$total" -le 0 ]]; then
+      echo "  未添加订阅，请先选择“添加订阅”"
+      return
+    fi
+    local default_url default_idx prompt idx
+    default_url=$(get_default_sub)
+    if [[ -n "$default_url" ]]; then
+      default_idx=$(get_sub_index_by_url "$default_url")
+      if [[ -z "$default_idx" ]]; then
+        clear_default_sub
+        default_url=""
+      fi
+    fi
+    echo
+    line
+    echo "  已保存订阅："
+    list_subs "$default_url"
+    line
+    if [[ -n "$default_idx" ]]; then
+      prompt="  选择订阅编号(回车默认 ${default_idx}): "
+    elif [[ "$total" -eq 1 ]]; then
+      prompt="  选择订阅编号(回车默认 1): "
+    else
+      prompt="  选择订阅编号: "
+    fi
+    read -p "$prompt" idx
+    if [[ -z "$idx" ]]; then
+      if [[ -n "$default_idx" ]]; then
+        idx="$default_idx"
+      elif [[ "$total" -eq 1 ]]; then
+        idx="1"
+      fi
+    fi
+    sub_url=$(get_sub_by_index "$idx")
+    if [[ -z "$sub_url" ]]; then
+      echo "  订阅编号无效"
+      return
+    fi
+  fi
   echo
   echo "  正在下载订阅并解析节点..."
 
@@ -919,7 +1168,7 @@ update_sub() {
 
   for ua in "$SUB_UA" "Clash" "clash" "Clash for Windows" "ClashX" "clash.meta" "Mihomo" "mihomo" "Shadowrocket" "Quantumult X" "Surge" "Mozilla/5.0"; do
     [[ -z "$ua" ]] && continue
-    if ! curl -fsSL --compressed -A "$ua" "$SUB" -o "$TMP"; then
+    if ! curl -fsSL --compressed -A "$ua" "$sub_url" -o "$TMP"; then
       continue
     fi
 
@@ -983,7 +1232,7 @@ update_sub() {
       return
     fi
     rm -f "$TMP_EMPTY"
-    if ! convert_sub_to_clash "$SUB"; then
+    if ! convert_sub_to_clash "$sub_url"; then
       return
     fi
   fi
@@ -1005,6 +1254,128 @@ update_sub() {
   echo
   echo "  解析完成，节点数量：$(wc -l < $PROXY_FILE)"
   echo "  说明：mihomo 将在运行时自动健康检查（AUTO 组）"
+}
+
+show_subs() {
+  local def
+  def=$(get_default_sub)
+  echo
+  line
+  echo "  已保存订阅："
+  list_subs "$def"
+  line
+}
+
+set_default_sub_interactive() {
+  if [[ ! -s "$SUB_URLS_FILE" ]]; then
+    echo "  暂无订阅"
+    return
+  fi
+  local def idx url name
+  def=$(get_default_sub)
+  echo
+  line
+  echo "  已保存订阅："
+  list_subs "$def"
+  line
+  read -p "  选择默认订阅编号: " idx
+  url=$(get_sub_by_index "$idx")
+  if [[ -z "$url" ]]; then
+    echo "  订阅编号无效"
+    return
+  fi
+  name=$(get_sub_name_by_index "$idx")
+  set_default_sub "$url"
+  echo "  已设为默认：${name}"
+}
+
+delete_sub_interactive() {
+  if [[ ! -s "$SUB_URLS_FILE" ]]; then
+    echo "  暂无订阅"
+    return
+  fi
+  local def idx url
+  def=$(get_default_sub)
+  echo
+  line
+  echo "  已保存订阅："
+  list_subs "$def"
+  line
+  read -p "  删除订阅编号: " idx
+  url=$(get_sub_by_index "$idx")
+  if [[ -z "$url" ]]; then
+    echo "  订阅编号无效"
+    return
+  fi
+  remove_sub_by_index "$idx"
+  if [[ "$url" == "$def" ]]; then
+    clear_default_sub
+  fi
+  echo "  已删除订阅"
+}
+
+edit_sub_interactive() {
+  if [[ ! -s "$SUB_URLS_FILE" ]]; then
+    echo "  暂无订阅"
+    return
+  fi
+  local def idx old_url old_name new_url new_name line
+  def=$(get_default_sub)
+  echo
+  line
+  echo "  已保存订阅："
+  list_subs "$def"
+  line
+  read -p "  选择订阅编号: " idx
+  old_url=$(get_sub_by_index "$idx")
+  old_name=$(get_sub_name_by_index "$idx")
+  if [[ -z "$old_url" ]]; then
+    echo "  订阅编号无效"
+    return
+  fi
+  read -p "  订阅名称(回车保留: ${old_name}): " new_name
+  if [[ -z "$new_name" ]]; then
+    new_name="$old_name"
+  else
+    new_name=$(normalize_sub_name "$new_name")
+  fi
+  read -p "  订阅链接(回车保留): " new_url
+  if [[ -z "$new_url" ]]; then
+    new_url="$old_url"
+  fi
+  if [[ "$new_url" != "$old_url" ]] && sub_exists_url "$new_url"; then
+    echo "  订阅已存在"
+    return
+  fi
+  line=$(format_sub_line "$new_name" "$new_url")
+  replace_sub_by_index "$idx" "$line"
+  if [[ "$old_url" == "$def" ]]; then
+    set_default_sub "$new_url"
+  fi
+  echo "  已修改订阅"
+}
+
+manage_subs() {
+  while true; do
+    echo
+    line
+    echo "  订阅管理"
+    line
+    menu_item "1" "查看订阅"
+    menu_item "2" "设为默认"
+    menu_item "3" "删除订阅"
+    menu_item "4" "修改订阅"
+    menu_item "0" "返回上级"
+    echo
+    read -p "  请输入选项: " n
+    case $n in
+    1) show_subs; pause_menu ;;
+    2) set_default_sub_interactive; pause_menu ;;
+    3) delete_sub_interactive; pause_menu ;;
+    4) edit_sub_interactive; pause_menu ;;
+    0) return ;;
+    esac
+  done
 }
 
 build_proxy_list() {
@@ -1194,41 +1565,43 @@ uninstall_all() {
 
 menu() {
   logo
-  menu_item "1" "更新订阅并解析节点"
-  menu_item "2" "选择节点并启用代理"
-  menu_item "3" "查看当前使用节点"
-  menu_item "4" "查看代理链接"
-  menu_item "5" "重启代理服务"
-  menu_item "6" "停止代理服务"
-  menu_item "7" "查看运行日志"
-  menu_item "8" "启用直连 HTTP/SOCKS 代理"
-  menu_item "9" "退出"
-  menu_item "0" "返回上一级"
-  menu_item "U" "卸载所有组件"
+  menu_item "1" "添加订阅"
+  menu_item "2" "更新订阅"
+  menu_item "M" "订阅管理"
+  menu_item "3" "选择节点"
+  menu_item "4" "当前节点"
+  menu_item "5" "代理链接"
+  menu_item "6" "重启服务"
+  menu_item "7" "停止服务"
+  menu_item "8" "查看日志"
+  menu_item "9" "直连模式"
+  menu_item "U" "卸载全部"
+  menu_item "0" "退出程序"
   echo
   read -p "  请输入选项: " n
 
   case $n in
-  1) update_sub; pause_menu ;;
-  2) select_node; pause_menu ;;
-  3) current_node; pause_menu ;;
-  4) show_links; pause_menu ;;
-  5)
+  1) add_sub; pause_menu ;;
+  2) update_sub; pause_menu ;;
+  M|m) manage_subs ;;
+  3) select_node; pause_menu ;;
+  4) current_node; pause_menu ;;
+  5) show_links; pause_menu ;;
+  6)
     systemctl restart mihomo-proxy
     echo
     printf "%b\n" "  ${C_GREEN}代理服务已重启${C_RESET}"
     pause_menu
     ;;
-  6)
+  7)
     systemctl stop mihomo-proxy
     echo
     printf "%b\n" "  ${C_GREEN}代理服务已停止${C_RESET}"
     pause_menu
     ;;
-  7) show_logs; pause_menu ;;
-  8) direct_mode; pause_menu ;;
-  9) exit ;;
-  0) return ;;
+  8) show_logs; pause_menu ;;
+  9) direct_mode; pause_menu ;;
+  0) exit ;;
   U|u) uninstall_all; pause_menu ;;
   esac
 }
