@@ -1464,7 +1464,6 @@ update_sub() {
 
   echo
   msg_info "解析完成，节点数量：$(wc -l < $PROXY_FILE)"
-  msg_info "说明：mihomo 将在运行时自动健康检查（AUTO 组）"
 }
 
 show_subs() {
@@ -1594,11 +1593,6 @@ build_proxy_list() {
   if [[ -n "$active" ]]; then
     echo "      - $(yaml_quote "$active")"
   fi
-  while IFS= read -r name; do
-    [[ -z "$name" ]] && continue
-    [[ "$name" == "$active" ]] && continue
-    echo "      - $(yaml_quote "$name")"
-  done < "$PROXY_FILE"
 }
 
 gen_config() {
@@ -1635,15 +1629,6 @@ proxy-groups:
     type: select
     proxies:
 $(build_proxy_list "$ACTIVE_NODE")
-  - name: AUTO
-    type: url-test
-    url: http://www.gstatic.com/generate_204
-    interval: 300
-    proxies:
-$(build_proxy_list "$ACTIVE_NODE")
-
-rules:
-  - MATCH,PROXY
 EOL
 }
 
