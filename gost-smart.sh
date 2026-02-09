@@ -72,11 +72,11 @@ msg_title() { printf "%b\n" "  ${C_BOLD}$*${C_RESET}"; }
 menu_item() {
   local num="$1"
   local label="$2"
-  printf "  %b%s%b: %b%-*s%b\n" "${C_YELLOW}" "$num" "${C_RESET}" "${C_CYAN}" "$MENU_WIDTH" "$label" "${C_RESET}"
+  printf "  %b%s%b. %b%-*s%b\n" "${C_YELLOW}" "$num" "${C_RESET}" "${C_CYAN}" "$MENU_WIDTH" "$label" "${C_RESET}"
 }
 
 wait_back() {
-  local msg="${1:-0: 返回上一级}"
+  local msg="${1:-0. 返回上一级}"
   local v
   while true; do
     read -p "  ${msg} " v
@@ -84,7 +84,7 @@ wait_back() {
   done
 }
 
-wait_main() { wait_back "0: 返回上一级"; }
+wait_main() { wait_back "0. 返回上一级"; }
 
 logo() {
 clear
@@ -1006,7 +1006,7 @@ list_subs() {
     }
     if (name=="") name="未命名"
     mark=(url==def?g " [默认]" r:"")
-    printf "  %2d: %s%-*s%s | %s%s\n", i, y, w, name, r, url, mark
+    printf "  %2d. %s%-*s%s | %s%s\n", i, y, w, name, r, url, mark
   }' "$SUB_URLS_FILE"
 }
 
@@ -1539,7 +1539,7 @@ select_node() {
     return
   fi
   echo
-  nl -w2 -s': ' "$PROXY_FILE"
+  nl -w2 -s'. ' "$PROXY_FILE"
   echo
   read -p "  选择节点编号: " NUM
   sed -n "${NUM}p" "$PROXY_FILE" > "$ACTIVE"
