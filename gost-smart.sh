@@ -345,6 +345,410 @@ is_clash_yaml() {
   grep -qE '^[[:space:]]*proxies:' "$f"
 }
 
+is_node_list() {
+  python3 - "$1" <<'PY'
+import sys
+path = sys.argv[1]
+try:
+    with open(path, "r", encoding="utf-8", errors="ignore") as f:
+        lines = f.read().splitlines()
+except Exception:
+    sys.exit(1)
+schemes = ("vless://", "vmess://", "ss://", "trojan://", "ssr://")
+for line in lines:
+    s = line.strip()
+    if not s or s.startswith("#"):
+        continue
+    if s.startswith(schemes):
+        sys.exit(0)
+sys.exit(1)
+PY
+}
+
+convert_nodes_to_clash() {
+  local src="$1"
+  local dst="$2"
+  python3 - "$src" "$dst" <<'PY'
+import sys, base64, json, urllib.parse
+from collections import OrderedDict
+
+src, dst = sys.argv[1], sys.argv[2]
+
+def b64decode(s):
+    s = s.strip()
+    s = s.replace("-", "+").replace("_", "/")
+    s += "=" * (-len(s) % 4)
+    return base64.b64decode(s)
+
+def yaml_str(s):
+    s = str(s)
+    s = s.replace("\\", "\\\\").replace('"', '\\"')
+    return f'"{s}"'
+
+def scalar(v):
+    if isinstance(v, bool):
+        return "true" if v else "false"
+    if isinstance(v, int):
+        return str(v)
+    return yaml_str(v)
+
+def dump_field(f, key, val, indent):
+    sp = " " * indent
+    if isinstance(val, dict):
+        if not val:
+            return
+        f.write(f"{sp}{key}:\n")
+        for k, v in val.items():
+            dump_field(f, k, v, indent + 2)
+        return
+    if isinstance(val, list):
+        if not val:
+            return
+        f.write(f"{sp}{key}:\n")
+        for item in val:
+            if isinstance(item, dict):
+                f.write(f"{sp}  -\n")
+                for k, v in item.items():
+                    dump_field(f, k, v, indent + 4)
+            else:
+                f.write(f"{sp}  - {scalar(item)}\n")
+        return
+    if val is None or val == "":
+        return
+    f.write(f"{sp}{key}: {scalar(val)}\n")
+
+def dump_proxy(f, proxy):
+    f.write("  - name: " + scalar(proxy.get("name", "")) + "\n")
+    for k, v in proxy.items():
+        if k == "name":
+            continue
+        dump_field(f, k, v, 4)
+
+def parse_hostport(hp):
+    if hp.startswith("[") and "]" in hp:
+        host = hp[1:hp.index("]")]
+        rest = hp[hp.index("]") + 1 :]
+        if rest.startswith(":"):
+            rest = rest[1:]
+        port = int(rest) if rest else None
+        return host, port
+    if hp.count(":") == 1:
+        host, port = hp.split(":", 1)
+        return host, int(port)
+    u = urllib.parse.urlsplit("ss://" + hp)
+    return u.hostname, u.port
+
+def ensure_name(name, fallback, used):
+    name = (name or "").strip() or fallback
+    base = name
+    idx = 2
+    while name in used:
+        name = f"{base}-{idx}"
+        idx += 1
+    used.add(name)
+    return name
+
+def parse_vmess(line):
+    raw = line[8:]
+    try:
+        data = b64decode(raw)
+        js = json.loads(data.decode("utf-8", errors="ignore"))
+    except Exception:
+        return None
+    server = js.get("add") or ""
+    port = js.get("port")
+    uuid = js.get("id") or ""
+    if not server or not port or not uuid:
+        return None
+    p = OrderedDict()
+    p["name"] = js.get("ps") or ""
+    p["type"] = "vmess"
+    p["server"] = server
+    try:
+        p["port"] = int(port)
+    except Exception:
+        return None
+    p["uuid"] = uuid
+    aid = js.get("aid", 0)
+    try:
+        p["alterId"] = int(aid)
+    except Exception:
+        p["alterId"] = 0
+    p["cipher"] = js.get("scy") or js.get("cipher") or "auto"
+    p["udp"] = True
+    net = (js.get("net") or "tcp").lower()
+    if net and net != "tcp":
+        p["network"] = net
+    tls = (js.get("tls") or "").lower()
+    if tls in ("tls", "1", "true"):
+        p["tls"] = True
+    sni = js.get("sni") or ""
+    if sni:
+        p["servername"] = sni
+    alpn = js.get("alpn") or ""
+    if alpn:
+        p["alpn"] = [x.strip() for x in str(alpn).split(",") if x.strip()]
+    fp = js.get("fp") or ""
+    if fp:
+        p["fingerprint"] = fp
+    host = js.get("host") or ""
+    path = js.get("path") or ""
+    if net == "ws":
+        ws_opts = OrderedDict()
+        if path:
+            ws_opts["path"] = path
+        headers = OrderedDict()
+        if host:
+            headers["Host"] = host
+        if headers:
+            ws_opts["headers"] = headers
+        if ws_opts:
+            p["ws-opts"] = ws_opts
+    if net == "grpc":
+        grpc_opts = OrderedDict()
+        svc = js.get("serviceName") or path
+        if svc:
+            grpc_opts["grpc-service-name"] = svc
+        if grpc_opts:
+            p["grpc-opts"] = grpc_opts
+    return p
+
+def parse_vless(line):
+    try:
+        u = urllib.parse.urlsplit(line)
+    except Exception:
+        return None
+    if not u.hostname or not u.port or not u.username:
+        return None
+    params = urllib.parse.parse_qs(u.query, keep_blank_values=True)
+    def q(k):
+        return params.get(k, [""])[0]
+    p = OrderedDict()
+    p["name"] = urllib.parse.unquote(u.fragment or "")
+    p["type"] = "vless"
+    p["server"] = u.hostname
+    p["port"] = int(u.port)
+    p["uuid"] = u.username
+    p["udp"] = True
+    enc = q("encryption") or "none"
+    p["encryption"] = enc
+    flow = q("flow")
+    if flow:
+        p["flow"] = flow
+    net = (q("type") or q("transport") or "tcp").lower()
+    if net and net != "tcp":
+        p["network"] = net
+    if net == "ws":
+        ws_opts = OrderedDict()
+        path = q("path")
+        if path:
+            ws_opts["path"] = path
+        host = q("host")
+        headers = OrderedDict()
+        if host:
+            headers["Host"] = host
+        if headers:
+            ws_opts["headers"] = headers
+        if ws_opts:
+            p["ws-opts"] = ws_opts
+    if net == "grpc":
+        grpc_opts = OrderedDict()
+        svc = q("serviceName") or q("service") or q("grpc-service-name")
+        if svc:
+            grpc_opts["grpc-service-name"] = svc
+        if grpc_opts:
+            p["grpc-opts"] = grpc_opts
+    sec = (q("security") or "").lower()
+    if sec in ("tls", "reality", "xtls"):
+        p["tls"] = True
+        sni = q("sni") or q("serverName") or q("servername")
+        if sni:
+            p["servername"] = sni
+        alpn = q("alpn")
+        if alpn:
+            p["alpn"] = [x.strip() for x in alpn.split(",") if x.strip()]
+        fp = q("fp")
+        if fp:
+            p["fingerprint"] = fp
+        if sec == "reality":
+            ropts = OrderedDict()
+            pbk = q("pbk") or q("publicKey") or q("public-key")
+            sid = q("sid") or q("shortId") or q("short-id")
+            if pbk:
+                ropts["public-key"] = pbk
+            if sid:
+                ropts["short-id"] = sid
+            if ropts:
+                p["reality-opts"] = ropts
+    return p
+
+def parse_ss(line):
+    rest = line[5:]
+    name = ""
+    if "#" in rest:
+        rest, frag = rest.split("#", 1)
+        name = urllib.parse.unquote(frag)
+    plugin = ""
+    if "?" in rest:
+        rest, query = rest.split("?", 1)
+        params = urllib.parse.parse_qs(query, keep_blank_values=True)
+        plugin = params.get("plugin", [""])[0]
+    method = password = host = None
+    port = None
+    if "@" in rest:
+        userinfo, hostport = rest.rsplit("@", 1)
+        if ":" in userinfo:
+            method, password = userinfo.split(":", 1)
+        else:
+            try:
+                decoded = b64decode(userinfo).decode("utf-8", errors="ignore")
+                if ":" in decoded:
+                    method, password = decoded.split(":", 1)
+                else:
+                    return None
+            except Exception:
+                return None
+    else:
+        try:
+            decoded = b64decode(rest).decode("utf-8", errors="ignore")
+        except Exception:
+            return None
+        if "@" not in decoded or ":" not in decoded:
+            return None
+        userinfo, hostport = decoded.rsplit("@", 1)
+        method, password = userinfo.split(":", 1)
+    host, port = parse_hostport(hostport)
+    if not host or not port or not method:
+        return None
+    method = urllib.parse.unquote(method)
+    password = urllib.parse.unquote(password or "")
+    p = OrderedDict()
+    p["name"] = name
+    p["type"] = "ss"
+    p["server"] = host
+    p["port"] = int(port)
+    p["cipher"] = method
+    p["password"] = password
+    p["udp"] = True
+    if plugin:
+        plugin = urllib.parse.unquote(plugin)
+        parts = plugin.split(";")
+        pname = parts[0]
+        opts_raw = parts[1:]
+        opts = OrderedDict()
+        for item in opts_raw:
+            if not item:
+                continue
+            if "=" in item:
+                k, v = item.split("=", 1)
+                opts[k] = v
+            else:
+                opts[item] = True
+        if pname in ("simple-obfs", "obfs-local"):
+            pname = "obfs"
+        if pname in ("v2ray", "v2ray-plugin"):
+            pname = "v2ray-plugin"
+        p["plugin"] = pname
+        if pname == "obfs":
+            opts2 = OrderedDict()
+            if "obfs" in opts:
+                opts2["mode"] = opts["obfs"]
+            if "mode" in opts:
+                opts2["mode"] = opts["mode"]
+            if "obfs-host" in opts:
+                opts2["host"] = opts["obfs-host"]
+            if "host" in opts:
+                opts2["host"] = opts["host"]
+            if opts2:
+                p["plugin-opts"] = opts2
+        elif pname == "v2ray-plugin":
+            opts2 = OrderedDict()
+            if "mode" in opts:
+                opts2["mode"] = opts["mode"]
+            if "host" in opts:
+                opts2["host"] = opts["host"]
+            if "path" in opts:
+                opts2["path"] = opts["path"]
+            if "tls" in opts:
+                opts2["tls"] = True
+            if opts2:
+                p["plugin-opts"] = opts2
+        else:
+            if opts:
+                p["plugin-opts"] = opts
+    return p
+
+def parse_line(line):
+    if line.startswith("vmess://"):
+        return parse_vmess(line)
+    if line.startswith("vless://"):
+        return parse_vless(line)
+    if line.startswith("ss://"):
+        return parse_ss(line)
+    return None
+
+try:
+    with open(src, "r", encoding="utf-8", errors="ignore") as f:
+        lines = [x.strip() for x in f.read().splitlines()]
+except Exception:
+    sys.exit(1)
+
+proxies = []
+used_names = set()
+for line in lines:
+    if not line or line.startswith("#"):
+        continue
+    p = parse_line(line)
+    if not p:
+        continue
+    fallback = f"{p.get('type', 'node')}-{p.get('server', '')}:{p.get('port', '')}"
+    p["name"] = ensure_name(p.get("name") or "", fallback, used_names)
+    proxies.append(p)
+
+if not proxies:
+    sys.exit(1)
+
+with open(dst, "w", encoding="utf-8") as f:
+    f.write("proxies:\n")
+    for p in proxies:
+        dump_proxy(f, p)
+    f.write("\n")
+PY
+}
+
+proxy_count() {
+  python3 - "$1" <<'PY'
+import re, sys
+path = sys.argv[1]
+try:
+    with open(path, "r", encoding="utf-8", errors="ignore") as f:
+        lines = f.read().splitlines()
+except Exception:
+    print(0)
+    sys.exit(0)
+
+in_proxies = False
+base_indent = None
+count = 0
+for line in lines:
+    if not in_proxies:
+        m = re.match(r'^(\s*)proxies\s*:', line)
+        if m:
+            in_proxies = True
+            base_indent = len(m.group(1))
+        continue
+    if line.strip() == "":
+        continue
+    indent = len(line) - len(line.lstrip(' '))
+    if indent <= base_indent and not line.lstrip().startswith('-'):
+        break
+    if line.lstrip().startswith('-'):
+        count += 1
+
+print(count)
+PY
+}
+
 extract_proxies_block() {
   python3 - "$SUB_FILE" "$PROXY_YAML" <<'PY'
 import re, sys
@@ -438,34 +842,87 @@ update_sub() {
 
   TMP=$(mktemp)
   TMP_DEC=$(mktemp)
-  if ! curl -fsSL --compressed -A "$SUB_UA" "$SUB" -o "$TMP"; then
-    echo "  下载失败，请检查链接"
-    rm -f "$TMP" "$TMP_DEC"
-    return
-  fi
+  TMP_NODE=$(mktemp)
+  TMP_EMPTY=$(mktemp)
+  : > "$TMP_EMPTY"
 
-  normalize_yaml "$TMP"
-  if is_clash_yaml "$TMP"; then
-    mv "$TMP" "$SUB_FILE"
-  elif base64 -d "$TMP" > "$TMP_DEC" 2>/dev/null; then
-    normalize_yaml "$TMP_DEC"
-    if is_clash_yaml "$TMP_DEC"; then
-    mv "$TMP_DEC" "$SUB_FILE"
-    rm -f "$TMP"
-    else
-      rm -f "$TMP" "$TMP_DEC"
-      if ! convert_sub_to_clash "$SUB"; then
-        return
+  local success=0
+  local empty_ua=""
+  local ua
+  local count
+
+  for ua in "$SUB_UA" "Clash" "clash" "Clash for Windows" "ClashX" "clash.meta" "Mihomo" "mihomo" "Shadowrocket" "Quantumult X" "Surge" "Mozilla/5.0"; do
+    [[ -z "$ua" ]] && continue
+    if ! curl -fsSL --compressed -A "$ua" "$SUB" -o "$TMP"; then
+      continue
+    fi
+
+    normalize_yaml "$TMP"
+    if is_clash_yaml "$TMP"; then
+      count=$(proxy_count "$TMP")
+      if [[ "$count" -gt 0 ]]; then
+        mv "$TMP" "$SUB_FILE"
+        success=1
+        break
+      fi
+      cp "$TMP" "$TMP_EMPTY"
+      empty_ua="$ua"
+      continue
+    fi
+
+    if is_node_list "$TMP"; then
+      echo "  识别到节点列表，尝试直接解析..."
+      if convert_nodes_to_clash "$TMP" "$TMP_NODE"; then
+        mv "$TMP_NODE" "$SUB_FILE"
+        success=1
+        break
       fi
     fi
-  else
-    rm -f "$TMP" "$TMP_DEC"
+
+    if base64 -d "$TMP" > "$TMP_DEC" 2>/dev/null; then
+      normalize_yaml "$TMP_DEC"
+      if is_clash_yaml "$TMP_DEC"; then
+        count=$(proxy_count "$TMP_DEC")
+        if [[ "$count" -gt 0 ]]; then
+          mv "$TMP_DEC" "$SUB_FILE"
+          rm -f "$TMP"
+          success=1
+          break
+        fi
+        cp "$TMP_DEC" "$TMP_EMPTY"
+        empty_ua="$ua"
+        continue
+      fi
+      if is_node_list "$TMP_DEC"; then
+        echo "  识别到节点列表，尝试直接解析..."
+        if convert_nodes_to_clash "$TMP_DEC" "$TMP_NODE"; then
+          mv "$TMP_NODE" "$SUB_FILE"
+          rm -f "$TMP"
+          success=1
+          break
+        fi
+      fi
+    fi
+  done
+
+  rm -f "$TMP" "$TMP_DEC" "$TMP_NODE"
+
+  if [[ "$success" -ne 1 ]]; then
+    if [[ -n "$empty_ua" ]]; then
+      mv "$TMP_EMPTY" "$SUB_FILE"
+      echo
+      echo "  订阅返回 proxies: []（空节点）"
+      echo "  可能原因：订阅过期/绑定 IP/UA 限制/访问受限"
+      echo "  已使用的 UA：$empty_ua"
+      return
+    fi
+    rm -f "$TMP_EMPTY"
     if ! convert_sub_to_clash "$SUB"; then
       return
     fi
   fi
 
-  rm -f "$TMP" "$TMP_DEC"
+  rm -f "$TMP_EMPTY"
 
   if ! extract_proxies_block; then
     return
