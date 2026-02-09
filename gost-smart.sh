@@ -24,6 +24,7 @@ HTTP_PORT=18080
 SOCKS_PORT=18081
 MENU_WIDTH=16
 SUB_NAME_WIDTH=12
+TEST_URL=${TEST_URL:-http://api.ipify.org}
 
 if [[ -t 1 && -z "${NO_COLOR:-}" ]]; then
   C_RESET=$'\033[0m'
@@ -399,6 +400,104 @@ show_links() {
   printf "%b\n" "  ${C_CYAN}HTTP  ${C_RESET}: ${C_YELLOW}http://${USER}:${PASS}@${ip}:${HTTP_PORT}${C_RESET}"
   printf "%b\n" "  ${C_CYAN}SOCKS ${C_RESET}: ${C_YELLOW}socks5://${USER}:${PASS}@${ip}:${SOCKS_PORT}${C_RESET}"
   line
+}
+
+test_proxy_http() {
+  local ip
+  ip=$(get_public_ip)
+  if [[ "$ip" == "未获取到 IPv4" ]]; then
+    msg_warn "未获取到本机 IPv4，跳过对比"
+  fi
+  echo
+  msg_title "代理出口测试："
+  line
+  printf "%b\n" "  ${C_CYAN}测试地址${C_RESET}: ${C_YELLOW}${TEST_URL}${C_RESET}"
+  printf "%b\n" "  ${C_CYAN}使用代理${C_RESET}: ${C_YELLOW}http://${USER}:${PASS}@${ip}:${HTTP_PORT}${C_RESET}"
+  line
+  local out
+  out=$(curl -s --max-time 10 -x "http://${USER}:${PASS}@${ip}:${HTTP_PORT}" "$TEST_URL" || true)
+  if [[ -z "$out" ]]; then
+    msg_err "测试失败：未获取到出口 IP"
+    return 1
+  fi
+  msg_info "出口 IP：$out"
+  if [[ "$ip" != "未获取到 IPv4" && "$out" == "$ip" ]]; then
+    msg_warn "出口 IP 与服务器 IP 相同，可能未走节点"
+  else
+    msg_info "出口 IP 与服务器 IP 不同，节点生效"
+  fi
+}
+
+test_node_tcp() {
+  local name="$1"
+  local host="$2"
+  local port="$3"
+  [[ -z "$host" || -z "$port" ]] && return 1
+  timeout 5 bash -c "cat < /dev/null > /dev/tcp/${host}/${port}" >/dev/null 2>&1
+  if [[ $? -eq 0 ]]; then
+    msg_info "节点连通：${name}"
+    return 0
+  else
+    msg_warn "节点不可达：${name} (${host}:${port})"
+    return 1
+  fi
+}
+
+get_node_host_port() {
+  local name="$1"
+  python3 - "$PROXY_YAML" "$name" <<'PY'
+import re, sys
+path, target = sys.argv[1], sys.argv[2]
+try:
+    with open(path, "r", encoding="utf-8", errors="ignore") as f:
+        lines = f.read().splitlines()
+except Exception:
+    sys.exit(1)
+
+in_proxies = False
+base = None
+current = None
+server = None
+port = None
+
+def set_name(line):
+    s = line.split("name:", 1)[1].strip()
+    if s.startswith(("'", '"')):
+        q = s[0]
+        end = s.find(q, 1)
+        return s[1:end] if end != -1 else s[1:].strip()
+    return re.split(r'[},#]', s, 1)[0].strip()
+
+for line in lines:
+    if not in_proxies:
+        m = re.match(r'^(\s*)proxies\s*:\s*$', line)
+        if m:
+            in_proxies = True
+            base = len(m.group(1))
+        continue
+    if line.strip() == "":
+        continue
+    indent = len(line) - len(line.lstrip(' '))
+    if indent <= base and not line.lstrip().startswith('-'):
+        break
+    if line.lstrip().startswith('-'):
+        current = None
+        server = None
+        port = None
+    if "name:" in line:
+        current = set_name(line)
+    if current == target:
+        m = re.match(r'^\s*server\s*:\s*(.+)\s*$', line)
+        if m:
+            server = m.group(1).strip().strip('"').strip("'")
+        m = re.match(r'^\s*port\s*:\s*(\d+)\s*$', line)
+        if m:
+            port = m.group(1).strip()
+        if server and port:
+            print(f"{server} {port}")
+            sys.exit(0)
+sys.exit(1)
+PY
 }
 
 show_status() {
@@ -1722,6 +1821,19 @@ select_node() {
   echo
   read -p "  选择节点编号: " NUM
   sed -n "${NUM}p" "$PROXY_FILE" > "$ACTIVE"
+  local name
+  name=$(cat "$ACTIVE")
+  if [[ -z "$name" ]]; then
+    msg_err "节点编号无效"
+    return
+  fi
+  local hp host port
+  hp=$(get_node_host_port "$name" || true)
+  if [[ -n "$hp" ]]; then
+    host=$(echo "$hp" | awk '{print $1}')
+    port=$(echo "$hp" | awk '{print $2}')
+    test_node_tcp "$name" "$host" "$port" || true
+  fi
   gen_service
 }
 
@@ -1767,7 +1879,8 @@ menu() {
   menu_item "5" "重启服务"
   menu_item "6" "停止服务"
   menu_item "7" "查看日志"
-  menu_item "8" "直连模式"
+  menu_item "8" "测试出口"
+  menu_item "9" "直连模式"
   menu_item "U" "卸载全部"
   menu_item "0" "退出程序"
   echo
@@ -1792,7 +1905,8 @@ menu() {
     wait_main
     ;;
   7) show_logs; wait_main ;;
-  8) direct_mode; wait_main ;;
+  8) test_proxy_http; wait_main ;;
+  9) direct_mode; wait_main ;;
   0) exit ;;
   U|u) uninstall_all; wait_main ;;
   esac
