@@ -72,12 +72,11 @@ pause_menu() { read -p "  回车返回菜单"; }
 logo() {
 clear
 echo
-printf "%b\n" "${C_CYAN}   ██████╗  ██████╗ ███████╗████████╗${C_RESET}"
-printf "%b\n" "${C_CYAN}  ██╔════╝ ██╔═══██╗██╔════╝╚══██╔══╝${C_RESET}"
-printf "%b\n" "${C_CYAN}  ██║  ███╗██║   ██║███████╗   ██║   ${C_RESET}"
-printf "%b\n" "${C_CYAN}  ██║   ██║██║   ██║╚════██║   ██║   ${C_RESET}"
-printf "%b\n" "${C_CYAN}  ╚██████╔╝╚██████╔╝███████║   ██║   ${C_RESET}"
-printf "%b\n" "${C_CYAN}   ╚═════╝  ╚═════╝ ╚══════╝   ╚═╝   ${C_RESET}"
+printf "%b\n" "${C_CYAN}      __  __  _____  _   _   ___   ___ ${C_RESET}"
+printf "%b\n" "${C_CYAN}     |  \\/  ||_   _|| | | | / _ \\ / _ \\${C_RESET}"
+printf "%b\n" "${C_CYAN}     | |\\/| |  | |  | |_| || | | | | | |${C_RESET}"
+printf "%b\n" "${C_CYAN}     | |  | |  | |  |  _  || |_| | |_| |${C_RESET}"
+printf "%b\n" "${C_CYAN}     |_|  |_|  |_|  |_| |_| \\___/ \\___/ ${C_RESET}"
 echo
 printf "%b\n" "${C_BOLD}        MIHOMO 智能订阅代理管理面板${C_RESET}"
 line
@@ -368,6 +367,36 @@ get_public_ip() {
     ip="未获取到 IPv4"
   fi
   echo "$ip"
+}
+
+service_active() {
+  systemctl is-active --quiet mihomo-proxy
+}
+
+show_links() {
+  local ip status
+  ip=$(get_public_ip)
+  if service_active; then
+    status="${C_GREEN}运行中${C_RESET}"
+  else
+    status="${C_RED}已停止${C_RESET}"
+  fi
+  echo
+  line
+  printf "%b\n" "  服务状态：${status}"
+  line
+  echo "  HTTP  : http://${USER}:${PASS}@${ip}:${HTTP_PORT}"
+  echo "  SOCKS : socks5://${USER}:${PASS}@${ip}:${SOCKS_PORT}"
+  echo "  控制面板: 127.0.0.1:9090 (secret: ${SECRET})"
+  line
+}
+
+show_logs() {
+  echo
+  line
+  printf "%b\n" "  ${C_BOLD}mihomo 运行日志（最近 200 行）${C_RESET}"
+  line
+  journalctl -u mihomo-proxy -n 200 --no-pager
 }
 
 normalize_yaml() {
@@ -1168,11 +1197,14 @@ menu() {
   menu_item "1" "更新订阅并解析节点"
   menu_item "2" "选择节点并启用代理"
   menu_item "3" "查看当前使用节点"
-  menu_item "4" "重启代理服务"
-  menu_item "5" "卸载所有组件"
-  menu_item "6" "启用直连 HTTP/SOCKS 代理"
+  menu_item "4" "查看代理链接"
+  menu_item "5" "重启代理服务"
+  menu_item "6" "停止代理服务"
+  menu_item "7" "查看运行日志"
+  menu_item "8" "启用直连 HTTP/SOCKS 代理"
   menu_item "9" "退出"
   menu_item "0" "返回上一级"
+  menu_item "U" "卸载所有组件"
   echo
   read -p "  请输入选项: " n
 
@@ -1180,16 +1212,24 @@ menu() {
   1) update_sub; pause_menu ;;
   2) select_node; pause_menu ;;
   3) current_node; pause_menu ;;
-  4)
+  4) show_links; pause_menu ;;
+  5)
     systemctl restart mihomo-proxy
     echo
     printf "%b\n" "  ${C_GREEN}代理服务已重启${C_RESET}"
     pause_menu
     ;;
-  5) uninstall_all; pause_menu ;;
-  6) direct_mode; pause_menu ;;
+  6)
+    systemctl stop mihomo-proxy
+    echo
+    printf "%b\n" "  ${C_GREEN}代理服务已停止${C_RESET}"
+    pause_menu
+    ;;
+  7) show_logs; pause_menu ;;
+  8) direct_mode; pause_menu ;;
   9) exit ;;
   0) return ;;
+  U|u) uninstall_all; pause_menu ;;
   esac
 }
 
