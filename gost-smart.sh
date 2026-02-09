@@ -72,19 +72,19 @@ msg_title() { printf "%b\n" "  ${C_BOLD}$*${C_RESET}"; }
 menu_item() {
   local num="$1"
   local label="$2"
-  printf "  %b%s%b) %b%-*s%b\n" "${C_YELLOW}" "$num" "${C_RESET}" "${C_CYAN}" "$MENU_WIDTH" "$label" "${C_RESET}"
+  printf "  %b%s%b: %b%-*s%b\n" "${C_YELLOW}" "$num" "${C_RESET}" "${C_CYAN}" "$MENU_WIDTH" "$label" "${C_RESET}"
 }
 
 wait_back() {
-  local msg="${1:-输入 0 返回上一级}"
+  local msg="${1:-0: 返回上一级}"
   local v
   while true; do
-    read -p "  ${msg}: " v
+    read -p "  ${msg} " v
     [[ "$v" == "0" ]] && break
   done
 }
 
-wait_main() { wait_back "输入 0 返回上一级"; }
+wait_main() { wait_back "0: 返回上一级"; }
 
 logo() {
 clear
@@ -405,7 +405,7 @@ show_links() {
   line
   printf "%b\n" "  ${C_CYAN}HTTP  ${C_RESET}: ${C_YELLOW}http://${USER}:${PASS}@${ip}:${HTTP_PORT}${C_RESET}"
   printf "%b\n" "  ${C_CYAN}SOCKS ${C_RESET}: ${C_YELLOW}socks5://${USER}:${PASS}@${ip}:${SOCKS_PORT}${C_RESET}"
-  printf "%b\n" "  ${C_CYAN}控制面板${C_RESET}: ${C_YELLOW}127.0.0.1:9090${C_RESET} (secret: ${C_YELLOW}${SECRET}${C_RESET})"
+  printf "%b\n" "  ${C_CYAN}控制面板${C_RESET}: ${C_YELLOW}127.0.0.1:9090${C_RESET}  ${C_CYAN}secret${C_RESET}: ${C_YELLOW}${SECRET}${C_RESET}"
   line
 }
 
@@ -1006,7 +1006,7 @@ list_subs() {
     }
     if (name=="") name="未命名"
     mark=(url==def?g " [默认]" r:"")
-    printf "  %2d) %s%-*s%s | %s%s\n", i, y, w, name, r, url, mark
+    printf "  %2d: %s%-*s%s | %s%s\n", i, y, w, name, r, url, mark
   }' "$SUB_URLS_FILE"
 }
 
@@ -1096,7 +1096,7 @@ replace_sub_by_index() {
 }
 
 add_sub() {
-  read -p "  输入订阅链接(支持 Clash/Mihomo 或 v2rayN): " SUB
+  read -p "  输入订阅链接 支持 Clash/Mihomo 或 v2rayN: " SUB
   if [[ -z "$SUB" ]]; then
     msg_warn "未输入订阅链接"
     return
@@ -1105,7 +1105,7 @@ add_sub() {
     msg_warn "订阅已存在"
     return
   fi
-  read -p "  订阅名称(可选，回车自动生成): " SUB_NAME
+  read -p "  订阅名称 可选，回车自动生成: " SUB_NAME
   if [[ -z "$SUB_NAME" ]]; then
     SUB_NAME=$(auto_sub_name "$SUB")
   fi
@@ -1147,9 +1147,9 @@ update_sub() {
     list_subs "$default_url"
     line
     if [[ -n "$default_idx" ]]; then
-      prompt="  选择订阅编号(回车默认 ${default_idx}): "
+      prompt="  选择订阅编号 回车默认 ${default_idx}: "
     elif [[ "$total" -eq 1 ]]; then
-      prompt="  选择订阅编号(回车默认 1): "
+      prompt="  选择订阅编号 回车默认 1: "
     else
       prompt="  选择订阅编号: "
     fi
@@ -1348,13 +1348,13 @@ edit_sub_interactive() {
     msg_err "订阅编号无效"
     return
   fi
-  read -p "  订阅名称(回车保留: ${old_name}): " new_name
+  read -p "  订阅名称 回车保留 ${old_name}: " new_name
   if [[ -z "$new_name" ]]; then
     new_name="$old_name"
   else
     new_name=$(normalize_sub_name "$new_name")
   fi
-  read -p "  订阅链接(回车保留): " new_url
+  read -p "  订阅链接 回车保留: " new_url
   if [[ -z "$new_url" ]]; then
     new_url="$old_url"
   fi
@@ -1498,7 +1498,7 @@ EOL
   line
   printf "%b\n" "  ${C_CYAN}HTTP  ${C_RESET}: ${C_YELLOW}http://${USER}:${PASS}@${IP}:${HTTP_PORT}${C_RESET}"
   printf "%b\n" "  ${C_CYAN}SOCKS ${C_RESET}: ${C_YELLOW}socks5://${USER}:${PASS}@${IP}:${SOCKS_PORT}${C_RESET}"
-  printf "%b\n" "  ${C_CYAN}控制面板${C_RESET}: ${C_YELLOW}127.0.0.1:9090${C_RESET} (secret: ${C_YELLOW}${SECRET}${C_RESET})"
+  printf "%b\n" "  ${C_CYAN}控制面板${C_RESET}: ${C_YELLOW}127.0.0.1:9090${C_RESET}  ${C_CYAN}secret${C_RESET}: ${C_YELLOW}${SECRET}${C_RESET}"
   line
 }
 
@@ -1529,7 +1529,7 @@ EOL
   line
   printf "%b\n" "  ${C_CYAN}HTTP  ${C_RESET}: ${C_YELLOW}http://${USER}:${PASS}@${IP}:${HTTP_PORT}${C_RESET}"
   printf "%b\n" "  ${C_CYAN}SOCKS ${C_RESET}: ${C_YELLOW}socks5://${USER}:${PASS}@${IP}:${SOCKS_PORT}${C_RESET}"
-  printf "%b\n" "  ${C_CYAN}控制面板${C_RESET}: ${C_YELLOW}127.0.0.1:9090${C_RESET} (secret: ${C_YELLOW}${SECRET}${C_RESET})"
+  printf "%b\n" "  ${C_CYAN}控制面板${C_RESET}: ${C_YELLOW}127.0.0.1:9090${C_RESET}  ${C_CYAN}secret${C_RESET}: ${C_YELLOW}${SECRET}${C_RESET}"
   line
 }
 
@@ -1539,7 +1539,7 @@ select_node() {
     return
   fi
   echo
-  nl -w2 -s'. ' "$PROXY_FILE"
+  nl -w2 -s': ' "$PROXY_FILE"
   echo
   read -p "  选择节点编号: " NUM
   sed -n "${NUM}p" "$PROXY_FILE" > "$ACTIVE"
@@ -1565,7 +1565,7 @@ current_node() {
 
 uninstall_all() {
   echo
-  read -p "  确认卸载？(y/n): " c
+  read -p "  确认卸载？y/n: " c
   [[ $c != "y" ]] && return
 
   systemctl stop mihomo-proxy 2>/dev/null
