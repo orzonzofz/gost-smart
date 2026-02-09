@@ -1594,6 +1594,10 @@ gen_config() {
 
   echo "proxy" > "$MODE_FILE"
   ACTIVE_NODE=$(cat $ACTIVE 2>/dev/null || true)
+  if [[ -z "$ACTIVE_NODE" ]]; then
+    msg_warn "未选择节点，未启动代理"
+    return 1
+  fi
 
   cat > "$CONFIG" <<EOL
 port: ${HTTP_PORT}
