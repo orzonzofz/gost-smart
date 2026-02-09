@@ -1832,7 +1832,10 @@ select_node() {
   if [[ -n "$hp" ]]; then
     host=$(echo "$hp" | awk '{print $1}')
     port=$(echo "$hp" | awk '{print $2}')
-    test_node_tcp "$name" "$host" "$port" || true
+    if ! test_node_tcp "$name" "$host" "$port"; then
+      msg_warn "节点不可达，未启用代理"
+      return
+    fi
   fi
   gen_service
 }
