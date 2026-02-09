@@ -70,7 +70,10 @@ menu_item() {
   printf "  %b%s%b) %-*s\n" "${C_YELLOW}" "$num" "${C_RESET}" "$MENU_WIDTH" "$label"
 }
 
-pause_menu() { read -p "  回车返回菜单"; }
+pause_menu() {
+  local msg="${1:-回车返回主菜单}"
+  read -p "  ${msg}"
+}
 
 logo() {
 clear
@@ -1369,10 +1372,10 @@ manage_subs() {
     echo
     read -p "  请输入选项: " n
     case $n in
-    1) show_subs; pause_menu ;;
-    2) set_default_sub_interactive; pause_menu ;;
-    3) delete_sub_interactive; pause_menu ;;
-    4) edit_sub_interactive; pause_menu ;;
+    1) show_subs; pause_menu "回车返回订阅管理" ;;
+    2) set_default_sub_interactive; pause_menu "回车返回订阅管理" ;;
+    3) delete_sub_interactive; pause_menu "回车返回订阅管理" ;;
+    4) edit_sub_interactive; pause_menu "回车返回订阅管理" ;;
     0) return ;;
     esac
   done
