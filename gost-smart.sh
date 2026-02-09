@@ -25,6 +25,8 @@ SOCKS_PORT=18081
 MENU_WIDTH=16
 SUB_NAME_WIDTH=12
 TEST_URL=${TEST_URL:-http://api.ipify.org}
+TEST_URL_HTTPS=${TEST_URL_HTTPS:-https://api.ipify.org}
+LATENCY_TIMEOUT=${LATENCY_TIMEOUT:-3}
 
 if [[ -t 1 && -z "${NO_COLOR:-}" ]]; then
   C_RESET=$'\033[0m'
@@ -428,6 +430,39 @@ test_proxy_http() {
   fi
 }
 
+test_proxy_connectivity() {
+  local ip
+  ip=$(get_public_ip)
+  echo
+  msg_title "代理连通性检测："
+  line
+  printf "%b\n" "  ${C_CYAN}HTTP 测试${C_RESET}: ${C_YELLOW}${TEST_URL}${C_RESET}"
+  local out_http
+  out_http=$(curl -s --max-time 10 -x "http://${USER}:${PASS}@${ip}:${HTTP_PORT}" "$TEST_URL" || true)
+  if [[ -z "$out_http" ]]; then
+    msg_err "HTTP 测试失败"
+  else
+    msg_info "HTTP 出口 IP：$out_http"
+  fi
+  printf "%b\n" "  ${C_CYAN}HTTPS 测试${C_RESET}: ${C_YELLOW}${TEST_URL_HTTPS}${C_RESET}"
+  local out_https
+  out_https=$(curl -s --max-time 10 -x "http://${USER}:${PASS}@${ip}:${HTTP_PORT}" "$TEST_URL_HTTPS" || true)
+  if [[ -z "$out_https" ]]; then
+    msg_err "HTTPS 测试失败"
+  else
+    msg_info "HTTPS 出口 IP：$out_https"
+  fi
+  if [[ -n "$out_http" || -n "$out_https" ]]; then
+    if [[ "$ip" != "未获取到 IPv4" ]]; then
+      if [[ "$out_http" == "$ip" || "$out_https" == "$ip" ]]; then
+        msg_warn "出口 IP 与服务器 IP 相同，可能未走节点"
+      else
+        msg_info "出口 IP 与服务器 IP 不同，节点生效"
+      fi
+    fi
+  fi
+}
+
 test_node_tcp() {
   local name="$1"
   local host="$2"
@@ -498,6 +533,55 @@ for line in lines:
             sys.exit(0)
 sys.exit(1)
 PY
+}
+
+test_node_latency() {
+  local name="$1"
+  local host="$2"
+  local port="$3"
+  python3 - "$host" "$port" "$LATENCY_TIMEOUT" <<'PY'
+import socket, sys, time
+host = sys.argv[1]
+port = int(sys.argv[2])
+timeout = float(sys.argv[3])
+start = time.time()
+try:
+    sock = socket.create_connection((host, port), timeout=timeout)
+    sock.close()
+    ms = int((time.time() - start) * 1000)
+    print(ms)
+    sys.exit(0)
+except Exception:
+    sys.exit(1)
+PY
+}
+
+latency_all_nodes() {
+  if [[ ! -s $PROXY_FILE ]]; then
+    msg_warn "未找到节点，请先更新订阅"
+    return
+  fi
+  echo
+  msg_title "节点延迟检测（TCP 连接耗时）"
+  line
+  local name hp host port ms
+  while IFS= read -r name; do
+    [[ -z "$name" ]] && continue
+    hp=$(get_node_host_port "$name" || true)
+    if [[ -z "$hp" ]]; then
+      msg_warn "无法解析节点：$name"
+      continue
+    fi
+    host=$(echo "$hp" | awk '{print $1}')
+    port=$(echo "$hp" | awk '{print $2}')
+    ms=$(test_node_latency "$name" "$host" "$port" || true)
+    if [[ -n "$ms" ]]; then
+      printf "%b\n" "  ${C_YELLOW}${name}${C_RESET}  ${C_GREEN}${ms}ms${C_RESET}"
+    else
+      printf "%b\n" "  ${C_YELLOW}${name}${C_RESET}  ${C_RED}timeout${C_RESET}"
+    fi
+  done < "$PROXY_FILE"
+  line
 }
 
 show_status() {
@@ -1882,8 +1966,9 @@ menu() {
   menu_item "5" "重启服务"
   menu_item "6" "停止服务"
   menu_item "7" "查看日志"
-  menu_item "8" "测试出口"
-  menu_item "9" "直连模式"
+  menu_item "8" "连通检测"
+  menu_item "9" "延迟检测"
+  menu_item "10" "直连模式"
   menu_item "U" "卸载全部"
   menu_item "0" "退出程序"
   echo
@@ -1908,8 +1993,9 @@ menu() {
     wait_main
     ;;
   7) show_logs; wait_main ;;
-  8) test_proxy_http; wait_main ;;
-  9) direct_mode; wait_main ;;
+  8) test_proxy_connectivity; wait_main ;;
+  9) latency_all_nodes; wait_main ;;
+  10) direct_mode; wait_main ;;
   0) exit ;;
   U|u) uninstall_all; wait_main ;;
   esac
