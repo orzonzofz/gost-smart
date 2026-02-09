@@ -1280,6 +1280,7 @@ add_sub() {
     set_default_sub "$SUB"
   fi
   msg_info "已添加订阅"
+  update_sub "$SUB"
 }
 
 update_sub() {
