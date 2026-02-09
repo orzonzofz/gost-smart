@@ -62,16 +62,21 @@ else
   echo "$SECRET" > $SECRET_FILE
 fi
 
-line() { printf "%b\n" "${C_BLUE}-------------------------------------------------------${C_RESET}"; }
+line() { printf "%b\n" "${C_GREEN}-------------------------------------------------------${C_RESET}"; }
+
+msg_info() { printf "%b\n" "  ${C_GREEN}$*${C_RESET}"; }
+msg_warn() { printf "%b\n" "  ${C_YELLOW}$*${C_RESET}"; }
+msg_err() { printf "%b\n" "  ${C_RED}$*${C_RESET}"; }
+msg_title() { printf "%b\n" "  ${C_BOLD}$*${C_RESET}"; }
 
 menu_item() {
   local num="$1"
   local label="$2"
-  printf "  %b%s%b) %-*s\n" "${C_YELLOW}" "$num" "${C_RESET}" "$MENU_WIDTH" "$label"
+  printf "  %b%s%b) %b%-*s%b\n" "${C_YELLOW}" "$num" "${C_RESET}" "${C_CYAN}" "$MENU_WIDTH" "$label" "${C_RESET}"
 }
 
 wait_back() {
-  local msg="${1:-输入0返回上一级}"
+  local msg="${1:-输入 0 返回上一级}"
   local v
   while true; do
     read -p "  ${msg}: " v
@@ -79,7 +84,7 @@ wait_back() {
   done
 }
 
-wait_main() { wait_back "输入0返回上一级"; }
+wait_main() { wait_back "输入 0 返回上一级"; }
 
 logo() {
 clear
@@ -102,11 +107,11 @@ if command -v mihomo >/dev/null; then
 fi
 
 if ! command -v python3 >/dev/null; then
-  echo "  安装失败：需要 python3 用于解析 GitHub 发布信息"
+  msg_err "安装失败：需要 python3 用于解析 GitHub 发布信息"
   exit 1
 fi
 
-echo "  未检测到 mihomo，正在安装..."
+msg_info "未检测到 mihomo，正在安装..."
 ARCH=$(uname -m)
 case "$ARCH" in
   x86_64|amd64) ARCH=amd64 ;;
@@ -114,7 +119,7 @@ case "$ARCH" in
   armv7l|armv7) ARCH=armv7 ;;
   armv6l|armv6) ARCH=armv6 ;;
   *)
-    echo "  不支持的架构: $ARCH"
+    msg_err "不支持的架构: $ARCH"
     exit 1
     ;;
 esac
@@ -125,7 +130,7 @@ else
   TMP_JSON=$(mktemp)
   if ! curl -fsSL -H "Accept: application/vnd.github+json" -H "User-Agent: mihomo-smart" \
     https://api.github.com/repos/MetaCubeX/mihomo/releases/latest -o "$TMP_JSON"; then
-    echo "  获取发布信息失败：可能网络受限或 GitHub API 限流"
+    msg_err "获取发布信息失败：可能网络受限或 GitHub API 限流"
     rm -f "$TMP_JSON"
     exit 1
   fi
@@ -159,14 +164,14 @@ PY
 fi
 
 if [[ -z "$URL" ]]; then
-  echo "  安装失败：未找到对应的 Linux 发行包"
-  echo "  可手动指定下载地址：MIHOMO_URL=... 重新运行脚本"
+  msg_err "安装失败：未找到对应的 Linux 发行包"
+  msg_warn "可手动指定下载地址：MIHOMO_URL=... 重新运行脚本"
   exit 1
 fi
 
 TMP=$(mktemp)
 if ! curl -fsSL "$URL" -o "$TMP"; then
-  echo "  下载失败：$URL"
+  msg_err "下载失败：$URL"
   rm -f "$TMP"
   exit 1
 fi
@@ -181,7 +186,7 @@ chmod +x /usr/local/bin/mihomo
 rm -f "$TMP"
 
 if ! command -v mihomo >/dev/null; then
-  echo "  安装失败：mihomo 不可执行"
+  msg_err "安装失败：mihomo 不可执行"
   exit 1
 fi
 }
@@ -224,11 +229,11 @@ install_subconverter() {
   fi
 
   if ! command -v curl >/dev/null || ! command -v tar >/dev/null; then
-    echo "  安装失败：需要 curl 与 tar"
+    msg_err "安装失败：需要 curl 与 tar"
     return 1
   fi
 
-  echo "  未检测到 subconverter，正在安装..."
+  msg_info "未检测到 subconverter，正在安装..."
   local arch
   arch=$(uname -m)
   local candidates=()
@@ -246,7 +251,7 @@ install_subconverter() {
       candidates=(subconverter_linux_armv6.tar.gz subconverter_linux_armv6l.tar.gz)
       ;;
     *)
-      echo "  不支持的架构: $arch"
+      msg_err "不支持的架构: $arch"
       return 1
       ;;
   esac
@@ -263,7 +268,7 @@ install_subconverter() {
   done
 
   if [[ $ok -ne 1 ]]; then
-    echo "  安装失败：未找到对应的 subconverter 发行包"
+    msg_err "安装失败：未找到对应的 subconverter 发行包"
     rm -f "$tmp"
     return 1
   fi
@@ -271,7 +276,7 @@ install_subconverter() {
   rm -rf "$SUBCONVERTER_DIR"
   mkdir -p "$SUBCONVERTER_DIR"
   if ! tar -xzf "$tmp" -C "$SUBCONVERTER_DIR"; then
-    echo "  安装失败：解压 subconverter 失败"
+    msg_err "安装失败：解压 subconverter 失败"
     rm -f "$tmp"
     return 1
   fi
@@ -281,7 +286,7 @@ install_subconverter() {
     chmod +x "$SUBCONVERTER_BIN" 2>/dev/null || true
   fi
   if [[ ! -x "$SUBCONVERTER_BIN" ]]; then
-    echo "  安装失败：subconverter 不可执行"
+    msg_err "安装失败：subconverter 不可执行"
     return 1
   fi
 
@@ -308,7 +313,7 @@ start_subconverter() {
   if [[ -n "$pid" ]] && kill -0 "$pid" 2>/dev/null; then
     echo 1
   else
-    echo "  subconverter 启动失败，日志如下："
+    msg_err "subconverter 启动失败，日志如下："
     tail -n 20 "$SUBCONVERTER_LOG" 2>/dev/null || true
     echo 0
   fi
@@ -325,7 +330,7 @@ stop_subconverter() {
 
 convert_sub_to_clash() {
   local sub_url="$1"
-  echo "  订阅不是 Clash/Mihomo 格式，尝试本地转换..."
+  msg_warn "订阅不是 Clash/Mihomo 格式，尝试本地转换..."
 
   if ! install_subconverter; then
     return 1
@@ -355,12 +360,12 @@ convert_sub_to_clash() {
   fi
 
   if [[ $ok -ne 1 ]]; then
-    echo "  本地转换失败：subconverter 无法获取订阅"
+    msg_err "本地转换失败：subconverter 无法获取订阅"
     return 1
   fi
 
   if ! grep -q '^proxies:' "$SUB_FILE"; then
-    echo "  本地转换失败：输出不是 Clash/Mihomo 格式"
+    msg_err "本地转换失败：输出不是 Clash/Mihomo 格式"
     return 1
   fi
 }
@@ -398,9 +403,9 @@ show_links() {
   line
   printf "%b\n" "  服务状态：${status}"
   line
-  echo "  HTTP  : http://${USER}:${PASS}@${ip}:${HTTP_PORT}"
-  echo "  SOCKS : socks5://${USER}:${PASS}@${ip}:${SOCKS_PORT}"
-  echo "  控制面板: 127.0.0.1:9090 (secret: ${SECRET})"
+  printf "%b\n" "  ${C_CYAN}HTTP  ${C_RESET}: ${C_YELLOW}http://${USER}:${PASS}@${ip}:${HTTP_PORT}${C_RESET}"
+  printf "%b\n" "  ${C_CYAN}SOCKS ${C_RESET}: ${C_YELLOW}socks5://${USER}:${PASS}@${ip}:${SOCKS_PORT}${C_RESET}"
+  printf "%b\n" "  ${C_CYAN}控制面板${C_RESET}: ${C_YELLOW}127.0.0.1:9090${C_RESET} (secret: ${C_YELLOW}${SECRET}${C_RESET})"
   line
 }
 
@@ -864,7 +869,7 @@ with open(dst, "w", encoding="utf-8") as f:
 PY
 
   if ! is_clash_yaml "$PROXY_YAML"; then
-    echo "  订阅内容缺少 proxies 字段，无法解析"
+    msg_err "订阅内容缺少 proxies 字段，无法解析"
     return 1
   fi
 }
@@ -909,7 +914,7 @@ print("\n".join(names))
 PY
 
   if [[ ! -s "$PROXY_FILE" ]]; then
-    echo "  未解析到任何节点名称"
+    msg_err "未解析到任何节点名称"
     return 1
   fi
 }
@@ -1093,11 +1098,11 @@ replace_sub_by_index() {
 add_sub() {
   read -p "  输入订阅链接(支持 Clash/Mihomo 或 v2rayN): " SUB
   if [[ -z "$SUB" ]]; then
-    echo "  未输入订阅链接"
+    msg_warn "未输入订阅链接"
     return
   fi
   if sub_exists_url "$SUB"; then
-    echo "  订阅已存在"
+    msg_warn "订阅已存在"
     return
   fi
   read -p "  订阅名称(可选，回车自动生成): " SUB_NAME
@@ -1111,20 +1116,20 @@ add_sub() {
   if [[ "$before" -eq 0 ]]; then
     set_default_sub "$SUB"
   fi
-  echo "  已添加订阅"
+  msg_info "已添加订阅"
 }
 
 update_sub() {
   local sub_url="${1:-}"
   if [[ -z "$sub_url" ]]; then
     if [[ ! -s "$SUB_URLS_FILE" ]]; then
-      echo "  未添加订阅，请先选择“添加订阅”"
+      msg_warn "未添加订阅，请先选择“添加订阅”"
       return
     fi
     local total
     total=$(count_subs)
     if [[ "$total" -le 0 ]]; then
-      echo "  未添加订阅，请先选择“添加订阅”"
+      msg_warn "未添加订阅，请先选择“添加订阅”"
       return
     fi
     local default_url default_idx prompt idx
@@ -1138,7 +1143,7 @@ update_sub() {
     fi
     echo
     line
-    echo "  已保存订阅："
+    msg_title "已保存订阅："
     list_subs "$default_url"
     line
     if [[ -n "$default_idx" ]]; then
@@ -1158,12 +1163,12 @@ update_sub() {
     fi
     sub_url=$(get_sub_by_index "$idx")
     if [[ -z "$sub_url" ]]; then
-      echo "  订阅编号无效"
+      msg_err "订阅编号无效"
       return
     fi
   fi
   echo
-  echo "  正在下载订阅并解析节点..."
+  msg_info "正在下载订阅并解析节点..."
 
   TMP=$(mktemp)
   TMP_DEC=$(mktemp)
@@ -1196,7 +1201,7 @@ update_sub() {
     fi
 
     if is_node_list "$TMP"; then
-      echo "  识别到节点列表，尝试直接解析..."
+      msg_info "识别到节点列表，尝试直接解析..."
       if convert_nodes_to_clash "$TMP" "$TMP_NODE"; then
         mv "$TMP_NODE" "$SUB_FILE"
         success=1
@@ -1219,7 +1224,7 @@ update_sub() {
         continue
       fi
       if is_node_list "$TMP_DEC"; then
-        echo "  识别到节点列表，尝试直接解析..."
+        msg_info "识别到节点列表，尝试直接解析..."
         if convert_nodes_to_clash "$TMP_DEC" "$TMP_NODE"; then
           mv "$TMP_NODE" "$SUB_FILE"
           rm -f "$TMP"
@@ -1236,9 +1241,9 @@ update_sub() {
     if [[ -n "$empty_ua" ]]; then
       mv "$TMP_EMPTY" "$SUB_FILE"
       echo
-      echo "  订阅返回 proxies: []（空节点）"
-      echo "  可能原因：订阅过期/绑定 IP/UA 限制/访问受限"
-      echo "  已使用的 UA：$empty_ua"
+      msg_warn "订阅返回 proxies: []（空节点）"
+      msg_warn "可能原因：订阅过期/绑定 IP/UA 限制/访问受限"
+      msg_warn "已使用的 UA：$empty_ua"
       return
     fi
     rm -f "$TMP_EMPTY"
@@ -1262,8 +1267,8 @@ update_sub() {
   fi
 
   echo
-  echo "  解析完成，节点数量：$(wc -l < $PROXY_FILE)"
-  echo "  说明：mihomo 将在运行时自动健康检查（AUTO 组）"
+  msg_info "解析完成，节点数量：$(wc -l < $PROXY_FILE)"
+  msg_info "说明：mihomo 将在运行时自动健康检查（AUTO 组）"
 }
 
 show_subs() {
@@ -1271,76 +1276,76 @@ show_subs() {
   def=$(get_default_sub)
   echo
   line
-  printf "%b\n" "  ${C_BOLD}已保存订阅：${C_RESET}"
+  msg_title "已保存订阅："
   list_subs "$def"
   line
 }
 
 set_default_sub_interactive() {
   if [[ ! -s "$SUB_URLS_FILE" ]]; then
-    echo "  暂无订阅"
+    msg_warn "暂无订阅"
     return
   fi
   local def idx url name
   def=$(get_default_sub)
   echo
   line
-  echo "  已保存订阅："
+  msg_title "已保存订阅："
   list_subs "$def"
   line
   read -p "  选择默认订阅编号: " idx
   url=$(get_sub_by_index "$idx")
   if [[ -z "$url" ]]; then
-    echo "  订阅编号无效"
+    msg_err "订阅编号无效"
     return
   fi
   name=$(get_sub_name_by_index "$idx")
   set_default_sub "$url"
-  echo "  已设为默认：${name}"
+  msg_info "已设为默认：${name}"
 }
 
 delete_sub_interactive() {
   if [[ ! -s "$SUB_URLS_FILE" ]]; then
-    echo "  暂无订阅"
+    msg_warn "暂无订阅"
     return
   fi
   local def idx url
   def=$(get_default_sub)
   echo
   line
-  echo "  已保存订阅："
+  msg_title "已保存订阅："
   list_subs "$def"
   line
   read -p "  删除订阅编号: " idx
   url=$(get_sub_by_index "$idx")
   if [[ -z "$url" ]]; then
-    echo "  订阅编号无效"
+    msg_err "订阅编号无效"
     return
   fi
   remove_sub_by_index "$idx"
   if [[ "$url" == "$def" ]]; then
     clear_default_sub
   fi
-  echo "  已删除订阅"
+  msg_info "已删除订阅"
 }
 
 edit_sub_interactive() {
   if [[ ! -s "$SUB_URLS_FILE" ]]; then
-    echo "  暂无订阅"
+    msg_warn "暂无订阅"
     return
   fi
   local def idx old_url old_name new_url new_name line
   def=$(get_default_sub)
   echo
   line
-  echo "  已保存订阅："
+  msg_title "已保存订阅："
   list_subs "$def"
   line
   read -p "  选择订阅编号: " idx
   old_url=$(get_sub_by_index "$idx")
   old_name=$(get_sub_name_by_index "$idx")
   if [[ -z "$old_url" ]]; then
-    echo "  订阅编号无效"
+    msg_err "订阅编号无效"
     return
   fi
   read -p "  订阅名称(回车保留: ${old_name}): " new_name
@@ -1354,7 +1359,7 @@ edit_sub_interactive() {
     new_url="$old_url"
   fi
   if [[ "$new_url" != "$old_url" ]] && sub_exists_url "$new_url"; then
-    echo "  订阅已存在"
+    msg_warn "订阅已存在"
     return
   fi
   line=$(format_sub_line "$new_name" "$new_url")
@@ -1362,14 +1367,14 @@ edit_sub_interactive() {
   if [[ "$old_url" == "$def" ]]; then
     set_default_sub "$new_url"
   fi
-  echo "  已修改订阅"
+  msg_info "已修改订阅"
 }
 
 manage_subs() {
   while true; do
     echo
     line
-    printf "%b\n" "  ${C_BOLD}订阅管理${C_RESET}"
+    msg_title "订阅管理"
     line
     menu_item "1" "查看订阅"
     menu_item "2" "设为默认"
@@ -1402,7 +1407,7 @@ build_proxy_list() {
 
 gen_config() {
   if [[ ! -s $PROXY_FILE ]]; then
-    echo "  未找到节点，请先更新订阅"
+    msg_warn "未找到节点，请先更新订阅"
     return 1
   fi
 
@@ -1491,9 +1496,9 @@ EOL
   line
   printf "%b\n" "  ${C_GREEN}代理已启用${C_RESET}"
   line
-  echo "  HTTP  : http://${USER}:${PASS}@${IP}:${HTTP_PORT}"
-  echo "  SOCKS : socks5://${USER}:${PASS}@${IP}:${SOCKS_PORT}"
-  echo "  控制面板: 127.0.0.1:9090 (secret: ${SECRET})"
+  printf "%b\n" "  ${C_CYAN}HTTP  ${C_RESET}: ${C_YELLOW}http://${USER}:${PASS}@${IP}:${HTTP_PORT}${C_RESET}"
+  printf "%b\n" "  ${C_CYAN}SOCKS ${C_RESET}: ${C_YELLOW}socks5://${USER}:${PASS}@${IP}:${SOCKS_PORT}${C_RESET}"
+  printf "%b\n" "  ${C_CYAN}控制面板${C_RESET}: ${C_YELLOW}127.0.0.1:9090${C_RESET} (secret: ${C_YELLOW}${SECRET}${C_RESET})"
   line
 }
 
@@ -1522,15 +1527,15 @@ EOL
   line
   printf "%b\n" "  ${C_GREEN}直连代理已启用（无需订阅）${C_RESET}"
   line
-  echo "  HTTP  : http://${USER}:${PASS}@${IP}:${HTTP_PORT}"
-  echo "  SOCKS : socks5://${USER}:${PASS}@${IP}:${SOCKS_PORT}"
-  echo "  控制面板: 127.0.0.1:9090 (secret: ${SECRET})"
+  printf "%b\n" "  ${C_CYAN}HTTP  ${C_RESET}: ${C_YELLOW}http://${USER}:${PASS}@${IP}:${HTTP_PORT}${C_RESET}"
+  printf "%b\n" "  ${C_CYAN}SOCKS ${C_RESET}: ${C_YELLOW}socks5://${USER}:${PASS}@${IP}:${SOCKS_PORT}${C_RESET}"
+  printf "%b\n" "  ${C_CYAN}控制面板${C_RESET}: ${C_YELLOW}127.0.0.1:9090${C_RESET} (secret: ${C_YELLOW}${SECRET}${C_RESET})"
   line
 }
 
 select_node() {
   if [[ ! -s $PROXY_FILE ]]; then
-    echo "  未找到节点，请先更新订阅"
+    msg_warn "未找到节点，请先更新订阅"
     return
   fi
   echo
@@ -1543,17 +1548,17 @@ select_node() {
 
 current_node() {
   echo
-  echo "  当前使用节点："
+  msg_title "当前使用节点："
   line
   if [[ -f "$MODE_FILE" ]] && [[ "$(cat "$MODE_FILE")" == "direct" ]]; then
-    echo "  直连模式（无需订阅）"
+    msg_info "直连模式（无需订阅）"
     line
     return
   fi
   if [[ -s $ACTIVE ]]; then
     cat "$ACTIVE"
   else
-    echo "  未选择（默认使用列表第一个节点）"
+    msg_warn "未选择（默认使用列表第一个节点）"
   fi
   line
 }
@@ -1569,7 +1574,7 @@ uninstall_all() {
   rm -rf $WORKDIR
 
   echo
-  echo "  已卸载 Mihomo 代理管理环境"
+  msg_info "已卸载 Mihomo 代理管理环境"
   echo
 }
 
