@@ -1625,7 +1625,7 @@ EOL
 
   cat >> "$CONFIG" <<EOL
 proxy-groups:
-  - name: PROXY
+  - name: GLOBAL
     type: select
     proxies:
 $(build_proxy_list "$ACTIVE_NODE")
