@@ -401,6 +401,21 @@ show_links() {
   line
 }
 
+show_status() {
+  echo
+  msg_title "当前状态："
+  line
+  if [[ -f "$MODE_FILE" ]] && [[ "$(cat "$MODE_FILE")" == "direct" ]]; then
+    msg_info "直连模式（无需订阅）"
+  elif [[ -s $ACTIVE ]]; then
+    printf "%b\n" "  ${C_YELLOW}当前节点${C_RESET}: $(cat "$ACTIVE")"
+  else
+    msg_warn "未选择节点"
+  fi
+  line
+  show_links
+}
+
 show_logs() {
   echo
   line
@@ -1763,12 +1778,11 @@ menu() {
   menu_item "2" "更新订阅"
   menu_item "M" "订阅管理"
   menu_item "3" "选择节点"
-  menu_item "4" "当前节点"
-  menu_item "5" "代理链接"
-  menu_item "6" "重启服务"
-  menu_item "7" "停止服务"
-  menu_item "8" "查看日志"
-  menu_item "9" "直连模式"
+  menu_item "4" "当前状态"
+  menu_item "5" "重启服务"
+  menu_item "6" "停止服务"
+  menu_item "7" "查看日志"
+  menu_item "8" "直连模式"
   menu_item "U" "卸载全部"
   menu_item "0" "退出程序"
   echo
@@ -1779,22 +1793,21 @@ menu() {
   2) update_sub; wait_main ;;
   M|m) manage_subs ;;
   3) select_node; wait_main ;;
-  4) current_node; wait_main ;;
-  5) show_links; wait_main ;;
-  6)
+  4) show_status; wait_main ;;
+  5)
     systemctl restart mihomo-proxy
     echo
     printf "%b\n" "  ${C_GREEN}代理服务已重启${C_RESET}"
     wait_main
     ;;
-  7)
+  6)
     systemctl stop mihomo-proxy
     echo
     printf "%b\n" "  ${C_GREEN}代理服务已停止${C_RESET}"
     wait_main
     ;;
-  8) show_logs; wait_main ;;
-  9) direct_mode; wait_main ;;
+  7) show_logs; wait_main ;;
+  8) direct_mode; wait_main ;;
   0) exit ;;
   U|u) uninstall_all; wait_main ;;
   esac
