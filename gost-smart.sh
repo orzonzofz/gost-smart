@@ -416,9 +416,180 @@ normalize_yaml() {
   sed -i 's/\r$//' "$f" 2>/dev/null || true
 }
 
+b64_decode_file() {
+  local src="$1"
+  local dst="$2"
+  python3 - "$src" "$dst" <<'PY'
+import base64, sys
+src, dst = sys.argv[1], sys.argv[2]
+try:
+    data = open(src, "rb").read()
+except Exception:
+    sys.exit(1)
+s = b"".join(data.split())
+if not s:
+    sys.exit(1)
+s = s.replace(b"-", b"+").replace(b"_", b"/")
+s += b"=" * (-len(s) % 4)
+try:
+    out = base64.b64decode(s, validate=False)
+except Exception:
+    sys.exit(1)
+if not out:
+    sys.exit(1)
+with open(dst, "wb") as f:
+    f.write(out)
+PY
+}
+
 is_clash_yaml() {
   local f="$1"
   grep -qE '^[[:space:]]*proxies:' "$f"
+}
+
+has_proxy_providers() {
+  local f="$1"
+  grep -qE '^[[:space:]]*proxy-providers:' "$f"
+}
+
+extract_provider_urls() {
+  local f="$1"
+  python3 - "$f" <<'PY'
+import re, sys
+path = sys.argv[1]
+try:
+    with open(path, "r", encoding="utf-8", errors="ignore") as f:
+        lines = f.read().splitlines()
+except Exception:
+    sys.exit(1)
+
+in_block = False
+base = None
+urls = []
+for line in lines:
+    if not in_block:
+        m = re.match(r'^(\s*)proxy-providers\s*:\s*$', line)
+        if m:
+            in_block = True
+            base = len(m.group(1))
+        continue
+    if line.strip() == "":
+        continue
+    indent = len(line) - len(line.lstrip(' '))
+    if indent <= base:
+        break
+    m = re.match(r'^\s*url\s*:\s*(.+)\s*$', line)
+    if not m:
+        continue
+    val = m.group(1).strip()
+    if val.startswith(("'", '"')) and val.endswith(("'", '"')) and len(val) >= 2:
+        val = val[1:-1]
+    urls.append(val)
+
+print("\n".join(urls))
+PY
+}
+
+append_proxies_from_yaml() {
+  local src="$1"
+  local dst="$2"
+  python3 - "$src" "$dst" <<'PY'
+import re, sys
+src, dst = sys.argv[1], sys.argv[2]
+try:
+    with open(src, "r", encoding="utf-8", errors="ignore") as f:
+        lines = f.read().splitlines()
+except Exception:
+    sys.exit(1)
+
+out = []
+in_proxies = False
+base = None
+for line in lines:
+    if not in_proxies:
+        m = re.match(r'^(\s*)proxies\s*:\s*$', line)
+        if m:
+            in_proxies = True
+            base = len(m.group(1))
+        continue
+    if line.strip() == "":
+        continue
+    indent = len(line) - len(line.lstrip(' '))
+    if indent <= base and not line.lstrip().startswith('-'):
+        break
+    # 归一化为两空格缩进
+    rel = line[base + 2 :] if indent >= base + 2 else line.lstrip()
+    out.append("  " + rel)
+
+if not out:
+    sys.exit(1)
+
+with open(dst, "a", encoding="utf-8") as f:
+    f.write("\n".join(out) + "\n")
+PY
+}
+
+convert_providers_to_clash() {
+  local src="$1"
+  local ua="$2"
+  local out="$3"
+  local tmp_urls tmp tmp_dec tmp_node tmp_yaml
+  tmp_urls=$(mktemp)
+  tmp=$(mktemp)
+  tmp_dec=$(mktemp)
+  tmp_node=$(mktemp)
+  tmp_yaml=$(mktemp)
+
+  : > "$out"
+  echo "proxies:" >> "$out"
+
+  if ! extract_provider_urls "$src" > "$tmp_urls"; then
+    rm -f "$tmp_urls" "$tmp" "$tmp_dec" "$tmp_node" "$tmp_yaml"
+    return 1
+  fi
+
+  local ok=0
+  while IFS= read -r url; do
+    [[ -z "$url" ]] && continue
+    if ! curl -fsSL --compressed -A "$ua" "$url" -o "$tmp"; then
+      continue
+    fi
+    normalize_yaml "$tmp"
+    if is_clash_yaml "$tmp"; then
+      if append_proxies_from_yaml "$tmp" "$out"; then
+        ok=1
+      fi
+      continue
+    fi
+    if is_node_list "$tmp"; then
+      if convert_nodes_to_clash "$tmp" "$tmp_node"; then
+        if append_proxies_from_yaml "$tmp_node" "$out"; then
+          ok=1
+        fi
+      fi
+      continue
+    fi
+    if b64_decode_file "$tmp" "$tmp_dec"; then
+      normalize_yaml "$tmp_dec"
+      if is_clash_yaml "$tmp_dec"; then
+        if append_proxies_from_yaml "$tmp_dec" "$out"; then
+          ok=1
+        fi
+        continue
+      fi
+      if is_node_list "$tmp_dec"; then
+        if convert_nodes_to_clash "$tmp_dec" "$tmp_node"; then
+          if append_proxies_from_yaml "$tmp_node" "$out"; then
+            ok=1
+          fi
+        fi
+        continue
+      fi
+    fi
+  done < "$tmp_urls"
+
+  rm -f "$tmp_urls" "$tmp" "$tmp_dec" "$tmp_node" "$tmp_yaml"
+  [[ "$ok" -eq 1 ]]
 }
 
 is_node_list() {
@@ -1187,6 +1358,14 @@ update_sub() {
         success=1
         break
       fi
+      if has_proxy_providers "$TMP"; then
+        msg_info "检测到 proxy-providers，尝试合并节点..."
+        if convert_providers_to_clash "$TMP" "$ua" "$TMP_NODE"; then
+          mv "$TMP_NODE" "$SUB_FILE"
+          success=1
+          break
+        fi
+      fi
       cp "$TMP" "$TMP_EMPTY"
       empty_ua="$ua"
       continue
@@ -1201,7 +1380,7 @@ update_sub() {
       fi
     fi
 
-    if base64 -d "$TMP" > "$TMP_DEC" 2>/dev/null; then
+    if b64_decode_file "$TMP" "$TMP_DEC"; then
       normalize_yaml "$TMP_DEC"
       if is_clash_yaml "$TMP_DEC"; then
         count=$(proxy_count "$TMP_DEC")
@@ -1210,6 +1389,15 @@ update_sub() {
           rm -f "$TMP"
           success=1
           break
+        fi
+        if has_proxy_providers "$TMP_DEC"; then
+          msg_info "检测到 proxy-providers，尝试合并节点..."
+          if convert_providers_to_clash "$TMP_DEC" "$ua" "$TMP_NODE"; then
+            mv "$TMP_NODE" "$SUB_FILE"
+            rm -f "$TMP"
+            success=1
+            break
+          fi
         fi
         cp "$TMP_DEC" "$TMP_EMPTY"
         empty_ua="$ua"
