@@ -612,6 +612,39 @@ normalize_yaml() {
   # 去除 UTF-8 BOM 与 Windows 换行
   sed -i '1s/^\xEF\xBB\xBF//' "$f" 2>/dev/null || true
   sed -i 's/\r$//' "$f" 2>/dev/null || true
+
+  # 转换行内 YAML 格式 ({key: value, ...}) 为标准格式
+  python3 - "$f" <<'PY'
+import re, sys
+path = sys.argv[1]
+try:
+    with open(path, "r", encoding="utf-8", errors="ignore") as f:
+        content = f.read()
+except Exception:
+    sys.exit(0)
+
+# 转换 - {key: value, key2: value2} 为标准 YAML 块格式
+def convert_inline_yaml(match):
+    indent = len(match.group(1))
+    items = match.group(2)
+    result = []
+    for item in items.split(","):
+        item = item.strip()
+        if ":" in item:
+            key, val = item.split(":", 1)
+            key = key.strip()
+            val = val.strip()
+            # 保留值的引号（如果有）
+            result.append(" " * (indent + 2) + f"{key}: {val}")
+    return " " * indent + "-\n" + "\n".join(result)
+
+# 匹配 - {key: value, ...} 格式（包括多行情况）
+pattern = r'^(\s*)-\s*\{([^}]+)\}'
+content = re.sub(pattern, convert_inline_yaml, content, flags=re.MULTILINE)
+
+with open(path, "w", encoding="utf-8") as f:
+    f.write(content)
+PY
 }
 
 b64_decode_file() {
